@@ -892,25 +892,32 @@ function ModulePage({ type, onBack, onNavigate, onSelectOffice, onSelectMember, 
         rows=transfers.map(item=>[profileNames[item.user_id]||'Member',`${officeNames[item.from_office_id]||'Office'} → ${officeNames[item.to_office_id]||'Office'} · ${item.reason}`,new Date(item.requested_at).toLocaleDateString(),item.status.replace(/^./,letter=>letter.toUpperCase()),item.id])
         metrics=[['Pending',String((transfersResult.data||[]).filter(item=>item.status==='pending').length)],['All requests',String(transfersResult.data?.length||0)]]
       } else if (type === 'reports' || type === 'teamreports') {
+        const now=new Date(); const currentStart=new Date(now.getFullYear(),now.getMonth(),1); const periodStart=activeTab===0?currentStart:new Date(now.getFullYear(),now.getMonth()-1,1); const periodEnd=activeTab===0?new Date(now.getFullYear(),now.getMonth()+1,1):currentStart
+        const startIso=periodStart.toISOString(); const endIso=periodEnd.toISOString(); const startDate=startIso.slice(0,10); const endDate=endIso.slice(0,10)
         let memberIds = null
-        if (type === 'teamreports' && selectedOfficeId) {
-          const membershipsResult = await supabase.from('office_memberships').select('user_id').eq('office_id',selectedOfficeId).is('ended_at',null)
+        const reportOfficeId=selectedOfficeId||user.ledOfficeId
+        if (type === 'teamreports' && reportOfficeId) {
+          const membershipsResult = await supabase.from('office_memberships').select('user_id').eq('office_id',reportOfficeId).is('ended_at',null)
           error = membershipsResult.error
           memberIds = (membershipsResult.data || []).map(item=>item.user_id)
         }
         const empty = Promise.resolve({data:[],error:null})
+        let ordersQuery=supabase.from('orders').select('amount,status').gte('created_at',startIso).lt('created_at',endIso)
+        let attendanceQuery=supabase.from('attendance').select('status').gte('attendance_date',startDate).lt('attendance_date',endDate)
+        let plansQuery=supabase.from('weekly_plans').select('completion_percent').gte('week_start',startDate).lt('week_start',endDate)
+        let booksQuery=supabase.from('cash_books').select('currency,visibility,cash_transactions(entry_type,amount,transaction_date)').gte('cash_transactions.transaction_date',startDate).lt('cash_transactions.transaction_date',endDate)
+        if(memberIds?.length){ordersQuery=ordersQuery.in('user_id',memberIds);plansQuery=plansQuery.in('user_id',memberIds);booksQuery=booksQuery.in('owner_id',memberIds)}
+        if(reportOfficeId&&type==='teamreports')attendanceQuery=attendanceQuery.eq('office_id',reportOfficeId)
+        if(type==='teamreports')booksQuery=booksQuery.eq('visibility','office')
         const [ordersResult,attendanceResult,plansResult,booksResult] = await Promise.all([
-          memberIds === null ? supabase.from('orders').select('amount,status') : memberIds.length ? supabase.from('orders').select('amount,status').in('user_id',memberIds) : empty,
-          selectedOfficeId && type === 'teamreports' ? supabase.from('attendance').select('status').eq('office_id',selectedOfficeId) : supabase.from('attendance').select('status'),
-          memberIds === null ? supabase.from('weekly_plans').select('completion_percent') : memberIds.length ? supabase.from('weekly_plans').select('completion_percent').in('user_id',memberIds) : empty,
-          memberIds === null ? supabase.from('cash_books').select('cash_transactions(entry_type,amount)') : memberIds.length ? supabase.from('cash_books').select('cash_transactions(entry_type,amount)').in('owner_id',memberIds) : empty,
+          memberIds?.length===0?empty:ordersQuery, attendanceQuery, memberIds?.length===0?empty:plansQuery, memberIds?.length===0?empty:booksQuery,
         ])
         error=ordersResult.error||attendanceResult.error||plansResult.error||booksResult.error
         const gross=(ordersResult.data||[]).reduce((sum,item)=>sum+Number(item.amount),0); const attendance=attendanceResult.data||[]; const attended=attendance.filter(item=>item.status==='present'||item.status==='late').length
         const plans=plansResult.data||[]; const avg=plans.length?Math.round(plans.reduce((sum,item)=>sum+Number(item.completion_percent),0)/plans.length):0
-        const tx=(booksResult.data||[]).flatMap(book=>book.cash_transactions||[]); const cash=tx.reduce((sum,item)=>sum+(item.entry_type==='credit'?Number(item.amount):-Number(item.amount)),0)
+        const balanceFor=currency=>(booksResult.data||[]).filter(book=>book.currency===currency).flatMap(book=>book.cash_transactions||[]).reduce((sum,item)=>sum+(item.entry_type==='credit'?Number(item.amount):-Number(item.amount)),0)
         const orderMoney = amount => `$${Number(amount || 0).toLocaleString('en-US',{maximumFractionDigits:2})}`
-        rows=[['Orders report','Completed and active freelance orders',orderMoney(gross),'Live'],['Attendance report',`${attended} attended of ${attendance.length} records`,attendance.length?`${Math.round(attended/attendance.length*100)}%`:'0%','Live'],['Weekly plans','Average completion',`${avg}%`,'Live'],['Financial rollup','Office-visible finance entries',money(cash),'Live']]
+        rows=[['Orders report','Completed and active freelance orders',orderMoney(gross),'Live'],['Attendance report',`${attended} attended of ${attendance.length} records`,attendance.length?`${Math.round(attended/attendance.length*100)}%`:'0%','Live'],['Weekly plans','Average completion',`${avg}%`,'Live'],['Naira Finance rollup','Income minus expenses in NGN',money(balanceFor('NGN')),'Live'],['Dollar Finance rollup','Income minus expenses in USD',orderMoney(balanceFor('USD')),'Live']]
         metrics=[['Gross orders',orderMoney(gross)],['Attendance',attendance.length?`${Math.round(attended/attendance.length*100)}%`:'0%']]
       } else if (type === 'auditlog') {
         const result=await supabase.from('audit_log').select('action,entity_type,entity_id,created_at').order('created_at',{ascending:false}).limit(100)
@@ -1148,7 +1155,18 @@ function ModulePage({ type, onBack, onNavigate, onSelectOffice, onSelectMember, 
     setMessage(error?error.message:'Displayed Naira conversion updated for every rule.')
     if(!error)setRefreshKey(value=>value+1)
   }
+  const exportVisibleRows = () => {
+    if(!visibleRows.length){setMessage('There are no records to export for this period.');return}
+    const protect=value=>{const text=String(value??'');const safe=/^[=+\-@]/.test(text)?`'${text}`:text;return `"${safe.replaceAll('"','""')}"`}
+    const csv=[['Section','Description','Value','Status'],...visibleRows.map(row=>row.slice(0,4))].map(row=>row.map(protect).join(',')).join('\r\n')
+    const blob=new Blob([`\uFEFF${csv}`],{type:'text/csv;charset=utf-8'})
+    const url=URL.createObjectURL(blob);const link=document.createElement('a');link.href=url
+    link.download=`teamflow-${type}-${activeTab===0?'current':'previous'}-${new Date().toISOString().slice(0,10)}.csv`
+    document.body.appendChild(link);link.click();link.remove();URL.revokeObjectURL(url)
+    setMessage('Report downloaded successfully.')
+  }
   const runAction = async () => {
+    if (type === 'reports' || type === 'teamreports' || type === 'auditlog') { exportVisibleRows(); return }
     if (type === 'pointsettings') { changePointsConversion(); return }
     if (type === 'rewards') { setMessage('Your point history and the current Naira display value are shown below.'); return }
     if (type === 'notifications' || type === 'adminnotifications') {
