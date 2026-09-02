@@ -1,0 +1,12 @@
+.form-screen{min-height:100dvh;background:#f4f7fa}
+.form-content{max-width:620px;margin:auto;padding:0 16px 32px}
+.form-progress{display:flex;justify-content:space-between;align-items:center;padding:14px 16px;background:var(--deep);color:white;border-radius:15px;margin-bottom:16px}
+.form-progress span{font-size:10px;color:#9fadc0;text-transform:uppercase;letter-spacing:.08em;font-weight:800}
+.form-progress strong{font-size:11px;color:#6ce0b7}
+.record-form{background:white;border:1px solid #e0e7ee;border-radius:18px;padding:4px 16px 12px;margin-bottom:16px}
+.record-form label{margin:15px 0}
+.record-form input,.record-form textarea,.record-form select{background:#f6f8fa;font-size:12px}
+.record-form input[readonly]{color:#738197;background:#edf1f4}
+.form-submit{width:100%;margin-top:16px;min-height:50px;font-size:12px}
+.force-mobile .form-content{padding:0 16px 32px}
+.force-mobile .form-screen{width:390px}
