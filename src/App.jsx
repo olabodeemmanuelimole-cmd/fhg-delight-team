@@ -81,6 +81,7 @@ function AuthPage({ onAuthenticate }) {
 function Onboarding({ onFinish, account }) {
   const params = new URLSearchParams(window.location.search)
   const invitedOfficeId = params.get('office') || ''
+  const leaderInviteToken = params.get('leaderInvite') || ''
   const draftKey = `teamflow-onboarding-${account?.id || 'guest'}`
   const savedDraft = (() => { try { return JSON.parse(localStorage.getItem(draftKey) || '{}') } catch { return {} } })()
   const initialStep = Math.min(4, Math.max(0, Number(params.get('step') ?? savedDraft.step ?? 0)))
@@ -134,8 +135,8 @@ function Onboarding({ onFinish, account }) {
     if (!officeId) { setSaveError('Please choose an available office.'); return }
     setSaving(true); setSaveError('')
     const { error } = await supabase.rpc('complete_registration', { selected_office_id: officeId, selected_sponsor_id: sponsorId || null, selected_rank: rank, member_phone: phone || null, member_bio: bio || null })
-    setSaving(false)
     if (error) {
+      setSaving(false)
       // Refresh the account before keeping the user on onboarding. An overall
       // administrator may already have been activated directly in Supabase and
       // must not be blocked just because they do not have an office membership.
@@ -143,6 +144,11 @@ function Onboarding({ onFinish, account }) {
       setSaveError(error.message)
       return
     }
+    if (leaderInviteToken) {
+      const { error: inviteError } = await supabase.rpc('claim_team_leader_invitation', { invitation_token:leaderInviteToken })
+      if (inviteError) { setSaving(false); setSaveError(`Your profile was saved, but the leader invitation could not be claimed: ${inviteError.message}`); return }
+    }
+    setSaving(false)
     localStorage.removeItem(draftKey)
     onFinish()
   }
@@ -173,7 +179,7 @@ function Onboarding({ onFinish, account }) {
     </section>,
     <section key="pending" className="pending">
       <div className="success-mark"><Check weight="bold" /></div><span className={`status-chip ${account?.status === 'active' ? 'active-status' : 'warning'}`}>{account?.status === 'active' ? 'Account active' : 'Pending approval'}</span><h2>Your profile is ready</h2>
-      <p>{account?.status === 'active' ? 'Your administrator account is active. Complete this step to open the organization workspace.' : 'Your team leader will review your registration. You can explore your portal while approval is pending.'}</p>
+      <p>{account?.status === 'active' ? 'Your administrator account is active. Complete this step to open the organization workspace.' : leaderInviteToken ? 'Your profile and team-leader access request will be sent to the overall administrator for approval.' : 'Your team leader will review your registration. You can explore your portal while approval is pending.'}</p>
       <div className="summary-row"><span>Office</span><strong>{office}</strong></div><div className="summary-row"><span>Rank</span><strong>{rank}</strong></div>
     </section>,
   ]
@@ -1004,18 +1010,20 @@ function ModulePage({ type, onBack, onNavigate, onSelectOffice, onSelectMember, 
           ]
         }
       } else if (type === 'leaders' || type === 'orgmembers' || type === 'members') {
-        const [profilesResult, membershipsResult] = await Promise.all([
+        const [profilesResult, membershipsResult, invitationsResult] = await Promise.all([
           supabase.from('profiles').select('id,full_name,rank,role,status,created_at').order('full_name'),
           supabase.from('office_memberships').select('user_id,office:offices(id,name)').is('ended_at',null),
+          type === 'leaders' && user.role === 'Administrator' ? supabase.from('team_leader_invitations').select('id,status,claimed_by,created_at,office:offices(id,name),claimant:profiles!team_leader_invitations_claimed_by_fkey(full_name,rank)').in('status',['pending','claimed']).order('created_at',{ascending:false}) : Promise.resolve({data:[],error:null}),
         ])
-        error = profilesResult.error || membershipsResult.error
+        error = profilesResult.error || membershipsResult.error || invitationsResult.error
         const officeByUser = Object.fromEntries((membershipsResult.data || []).map(item => [item.user_id,item.office?.name || 'Office pending']))
         const scopeOfficeId = type === 'members' ? user.ledOfficeId : selectedOfficeId
         const scopedMemberIds = scopeOfficeId ? new Set((membershipsResult.data || []).filter(item => item.office?.id === scopeOfficeId).map(item=>item.user_id)) : null
         const profiles = (profilesResult.data || []).filter(item => ((type === 'orgmembers' || type === 'members') || item.role === 'team_leader') && (!scopedMemberIds || scopedMemberIds.has(item.id)))
         rows = profiles.map(item => [item.full_name, `${officeByUser[item.id] || 'Office pending'} · ${item.rank}`, item.role === 'team_leader' ? 'Team leader' : item.role === 'admin' ? 'Administrator' : 'Member', item.status, item.id])
+        if (type === 'leaders') rows = [...(invitationsResult.data || []).map(item => [item.claimant?.full_name || 'Invitation not claimed', `${item.office?.name || 'Office'} · ${item.claimant?.rank || 'Registration link sent'}`, item.claimed_by ? 'Approval requested' : 'Awaiting registration', 'Pending', item.id, item.claimed_by, 'leader-invite']), ...rows]
         metrics = type === 'leaders'
-          ? [['Team leaders',String(profiles.length)],['Active',String(profiles.filter(item => item.status === 'active').length)]]
+          ? [['Team leaders',String(profiles.length)],['Pending',String(invitationsResult.data?.length || 0)]]
           : [['Members',String(profiles.length)],['Pending approval',String(profiles.filter(item => item.status === 'pending').length)]]
       } else if (type === 'attendanceregister') {
         if (!user.ledOfficeId && user.role !== 'Administrator') error={message:'A team-leader office assignment is required.'}
@@ -1158,6 +1166,14 @@ function ModulePage({ type, onBack, onNavigate, onSelectOffice, onSelectMember, 
     setMessage(error?error.message:'Displayed Naira conversion updated for every rule.')
     if(!error)setRefreshKey(value=>value+1)
   }
+  const shareUrl = async ({ url, title, text, copiedMessage }) => {
+    if (navigator.share) {
+      try { await navigator.share({ title, text, url }); setMessage('Invitation shared successfully.'); return }
+      catch (error) { if (error?.name === 'AbortError') return }
+    }
+    try { await navigator.clipboard.writeText(url); setMessage(copiedMessage) }
+    catch { window.prompt('Copy this registration link', url) }
+  }
   const exportVisibleRows = () => {
     if(!visibleRows.length){setMessage('There are no records to export for this period.');return}
     const protect=value=>{const text=String(value??'');const safe=/^[=+\-@]/.test(text)?`'${text}`:text;return `"${safe.replaceAll('"','""')}"`}
@@ -1178,21 +1194,24 @@ function ModulePage({ type, onBack, onNavigate, onSelectOffice, onSelectMember, 
     inviteUrl.searchParams.set('register', '1')
     if (officeId) inviteUrl.searchParams.set('office', officeId)
     const officeName = officeDetail?.name || user.ledOffice || user.office || 'TeamFlow'
-    if (navigator.share) {
-      try {
-        await navigator.share({ title: `Join ${officeName} on TeamFlow`, text: `Create your TeamFlow account and join ${officeName}.`, url: inviteUrl.toString() })
-        setMessage('Invitation shared successfully.')
-        return
-      } catch (error) {
-        if (error?.name === 'AbortError') return
-      }
-    }
-    try {
-      await navigator.clipboard.writeText(inviteUrl.toString())
-      setMessage(officeId ? 'Office registration link copied. Send it to the new member.' : 'General registration link copied. The new member will choose an office.')
-    } catch {
-      window.prompt('Copy this registration link', inviteUrl.toString())
-    }
+    await shareUrl({ url:inviteUrl.toString(), title:`Join ${officeName} on TeamFlow`, text:`Create your TeamFlow account and join ${officeName}.`, copiedMessage:officeId ? 'Office registration link copied. Send it to the new member.' : 'General registration link copied. The new member will choose an office.' })
+  }
+  const shareLeaderInviteLink = async () => {
+    if (!officeDetail?.id) { setMessage('Open the office you want this leader to manage first.'); return }
+    setMessage('Creating secure team-leader invitation…')
+    const { data:token, error } = await supabase.rpc('admin_create_team_leader_invitation',{target_office_id:officeDetail.id})
+    if (error) { setMessage(error.message); return }
+    const inviteUrl = new URL(window.location.origin)
+    inviteUrl.searchParams.set('register','1'); inviteUrl.searchParams.set('office',officeDetail.id); inviteUrl.searchParams.set('leaderInvite',token)
+    await shareUrl({url:inviteUrl.toString(),title:`Lead ${officeDetail.name} on TeamFlow`,text:`Register for TeamFlow and request team-leader access for ${officeDetail.name}.`,copiedMessage:'Team-leader invitation copied. Access will remain pending until you approve it.'})
+    setRefreshKey(value=>value+1)
+  }
+  const decideLeaderInvitation = async (invitationId, decision) => {
+    setMessage(`${decision === 'approved' ? 'Approving' : 'Revoking'} team-leader request…`)
+    const functionName=decision==='approved'?'admin_approve_team_leader_invitation':'admin_revoke_team_leader_invitation'
+    const { error }=await supabase.rpc(functionName,{invitation_id:invitationId})
+    setMessage(error?error.message:`Team-leader invitation ${decision}.`)
+    if(!error)setRefreshKey(value=>value+1)
   }
   const runAction = async () => {
     if (type === 'team' || type === 'members' || type === 'orgmembers') { await shareInviteLink(); return }
@@ -1222,12 +1241,12 @@ function ModulePage({ type, onBack, onNavigate, onSelectOffice, onSelectMember, 
     {(type === 'orders' || type === 'attendance' || type === 'plans' || type === 'books') && (user.isTeamLeader || user.role === 'Administrator') && <div className="segment-control scope-control"><button className={recordScope === 'mine' ? 'active' : ''} onClick={() => { setRecordScope('mine'); setActiveTab(0); setMessage('') }}>{type === 'orders' ? 'My orders' : type === 'attendance' ? 'My attendance' : type === 'plans' ? 'My plan' : 'My Finance'}</button><button className={recordScope === 'team' ? 'active' : ''} onClick={() => { setRecordScope('team'); setActiveTab(0); setMessage('') }}>{type === 'orders' ? (user.role === 'Administrator' ? 'Organization orders' : 'Team orders') : type === 'attendance' ? 'Office attendance' : type === 'plans' ? 'Team plans' : 'Office Finance'}</button></div>}
     <div className="segment-control">{displayTabs.map((tab,i) => <button className={i === activeTab ? 'active' : ''} onClick={() => { setActiveTab(i); setMessage('') }} key={tab}>{tab}</button>)}</div>
     {type === 'admindashboard' && <div className="admin-shortcuts"><button onClick={() => onNavigate('offices')}><Briefcase />Offices</button><button onClick={() => onNavigate('leaders')}><Users />Leaders</button><button onClick={() => onNavigate('orgmembers')}><Users />Members</button><button onClick={() => onNavigate('transfers')}><ArrowRight />Transfers</button><button onClick={() => onNavigate('reports')}><TrendUp />Reports</button><button onClick={() => onNavigate('pointsettings')}><Sparkle />Rewards</button><button onClick={() => onNavigate('auditlog')}><CheckCircle />Audit</button></div>}
-    {type === 'officedetail' && <><div className="admin-shortcuts"><button onClick={() => onNavigate('teamreports')}><TrendUp />View report</button><button onClick={() => onNavigate('orgmembers')}><Users />Office members</button><button onClick={() => onNavigate('leaders')}><Users />Leaders</button></div>{user.role === 'Administrator' && <button className="danger-action" onClick={deleteOffice}>Permanently delete empty office</button>}</>}
+    {type === 'officedetail' && <><div className="admin-shortcuts"><button onClick={() => onNavigate('teamreports')}><TrendUp />View report</button><button onClick={() => onNavigate('orgmembers')}><Users />Office members</button><button onClick={() => onNavigate('leaders')}><Users />Leaders</button>{user.role === 'Administrator' && <button onClick={shareLeaderInviteLink}><Plus />Invite team leader</button>}</div>{user.role === 'Administrator' && <button className="danger-action" onClick={deleteOffice}>Permanently delete empty office</button>}</>}
     {type === 'books' && recordScope === 'mine' && <div className="admin-shortcuts"><button onClick={() => onNavigate('createbook')}><BookOpen />New book</button><button onClick={() => onNavigate('withdrawals')}><Wallet />Withdrawals</button></div>}
     {type === 'leaderdashboard' && <div className="admin-shortcuts"><button onClick={() => onNavigate('members')}><Users />Members</button><button onClick={() => onNavigate('transferapprovals')}><ArrowRight />Transfers</button><button onClick={() => onNavigate('teamreports')}><TrendUp />Reports</button></div>}
     {message && <div className="interaction-message" role="status">{message}</div>}
     {type === 'pointsettings' && user.role === 'Administrator' && <section className="reward-controls"><button className="detail-secondary" onClick={changePointsConversion}>Change Naira conversion</button>{visibleRows.map(row=><div className="reward-control-row" key={row[4]}><span><strong>{row[0]}</strong><small>{row[2]} · {row[3]}</small></span><span className="row-actions"><button onClick={()=>changePointsRule(row[4],Math.max(0,Number(row[6])-10),row[3]==='Active')}>−10</button><button onClick={()=>changePointsRule(row[4],Number(row[6])+10,row[3]==='Active')}>+10</button><button onClick={()=>changePointsRule(row[4],Number(row[6]),row[3]!=='Active')}>{row[3]==='Active'?'Disable':'Enable'}</button></span></div>)}</section>}
-    <section className="records"><div className="section-title"><h2>{data.listTitle || (type === 'plans' ? (recordScope === 'team' ? 'Team submissions' : 'Your plan') : type === 'attendance' ? (recordScope === 'team' ? 'Office register' : 'Daily history') : 'Recent records')}</h2><button onClick={() => setMessage(message === 'Filters are open' ? '' : 'Filters are open')}>Filter</button></div>{visibleRows.length ? visibleRows.map(([title,meta,value,status,recordId,recordOwnerId,reviewState], index) => type === 'offices' ? <button className="office-directory-row" key={recordId} onClick={() => onSelectOffice(recordId)}><span className={`record-symbol ${status.toLowerCase()}`}><Briefcase /></span><span><strong>{title}</strong><small>{meta}</small></span><span className="record-value"><b>{value}</b><small>{status}</small></span><ArrowRight /></button> : type === 'team' ? <button className="office-directory-row" key={recordId} onClick={() => onSelectMember(recordId)}><span className={`record-symbol ${status.toLowerCase().replaceAll(' ','-')}`}><Users /></span><span><strong>{title}</strong><small>{meta}</small></span><span className="record-value"><b>{value}</b><small>{status}</small></span><ArrowRight /></button> : <article key={`${title}-${index}`}><span className={`record-symbol ${status.toLowerCase().replaceAll(' ','-')}`}><Icon /></span><div><strong>{title}</strong><small>{meta}</small></div>{type === 'orgmembers' && recordId !== user.id ? <span className="row-actions member-actions">{status !== 'active' && <button onClick={() => setMemberStatus(recordId,'active')}>Approve</button>}{status === 'active' && <button onClick={() => setMemberStatus(recordId,'suspended')}>Suspend</button>}{status === 'suspended' && <button onClick={() => setMemberStatus(recordId,'pending')}>Set pending</button>}{user.role === 'Administrator' && <button className="danger" onClick={() => deleteMember(recordId)}>Delete</button>}</span> : type === 'plans' && recordScope === 'team' && !reviewState ? <button className="row-action" onClick={() => onReviewPlan(recordId)}>Review</button> : type === 'attendance' && recordScope === 'team' && status === 'absent' && reviewState === 'pending' ? <span className="row-actions"><button onClick={() => reviewAttendanceExcuse(recordId,'approved')}>Approve</button><button onClick={() => reviewAttendanceExcuse(recordId,'rejected')}>Reject</button></span> : type === 'orders' && recordOwnerId === user.id && status === 'active' ? <span className="row-actions"><button onClick={() => updateOrderStatus(recordId,'completed')}>Complete</button><button onClick={() => updateOrderStatus(recordId,'cancelled')}>Cancel</button></span> : type === 'events' && status !== 'Done' ? <button className="row-action" onClick={() => completeEvent(recordId)}>Mark done</button> : type === 'feedbackinbox' && status !== 'resolved' ? <span className="row-actions"><button onClick={() => updateFeedbackStatus(recordId,'open')}>Open</button><button onClick={() => updateFeedbackStatus(recordId,'resolved')}>Resolve</button></span> : (type === 'notifications' || type === 'adminnotifications') ? <button className="row-action" onClick={() => openNotification(recordId,recordOwnerId)}>Open</button> : type === 'admindashboard' && status === 'Pending' ? <button className="row-action" onClick={() => approveMember(recordId)}>Approve</button> : (type === 'transfers' || type === 'transferapprovals') && status === 'Pending' && (user.role === 'Administrator' || user.role === 'Team leader' || user.isTeamLeader) ? <span className="row-actions"><button onClick={()=>decideTransfer(recordId,'approved')}>Approve</button><button onClick={()=>decideTransfer(recordId,'rejected')}>Reject</button></span> : <span className="record-value"><b>{value}</b><small>{status}</small></span>}</article>) : <div className="live-empty">{type === 'admindashboard' ? 'No registrations are awaiting approval.' : type === 'offices' ? `No ${activeTab === 0 ? 'active' : 'archived'} offices.` : type === 'orders' && activeTab > 0 ? `No ${activeTab === 1 ? 'active' : 'completed'} orders yet.` : type === 'team' ? 'No active downlines yet. Members will appear here after selecting you as their sponsor.' : 'No live records yet. Use the action above to add the first one.'}</div>}</section>
+    <section className="records"><div className="section-title"><h2>{data.listTitle || (type === 'plans' ? (recordScope === 'team' ? 'Team submissions' : 'Your plan') : type === 'attendance' ? (recordScope === 'team' ? 'Office register' : 'Daily history') : 'Recent records')}</h2><button onClick={() => setMessage(message === 'Filters are open' ? '' : 'Filters are open')}>Filter</button></div>{visibleRows.length ? visibleRows.map(([title,meta,value,status,recordId,recordOwnerId,reviewState], index) => type === 'offices' ? <button className="office-directory-row" key={recordId} onClick={() => onSelectOffice(recordId)}><span className={`record-symbol ${status.toLowerCase()}`}><Briefcase /></span><span><strong>{title}</strong><small>{meta}</small></span><span className="record-value"><b>{value}</b><small>{status}</small></span><ArrowRight /></button> : type === 'team' ? <button className="office-directory-row" key={recordId} onClick={() => onSelectMember(recordId)}><span className={`record-symbol ${status.toLowerCase().replaceAll(' ','-')}`}><Users /></span><span><strong>{title}</strong><small>{meta}</small></span><span className="record-value"><b>{value}</b><small>{status}</small></span><ArrowRight /></button> : <article key={`${title}-${index}`}><span className={`record-symbol ${status.toLowerCase().replaceAll(' ','-')}`}><Icon /></span><div><strong>{title}</strong><small>{meta}</small></div>{type === 'leaders' && reviewState === 'leader-invite' ? <span className="row-actions">{recordOwnerId && <button onClick={()=>decideLeaderInvitation(recordId,'approved')}>Approve</button>}<button className="danger" onClick={()=>decideLeaderInvitation(recordId,'revoked')}>Revoke</button></span> : type === 'orgmembers' && recordId !== user.id ? <span className="row-actions member-actions">{status !== 'active' && <button onClick={() => setMemberStatus(recordId,'active')}>Approve</button>}{status === 'active' && <button onClick={() => setMemberStatus(recordId,'suspended')}>Suspend</button>}{status === 'suspended' && <button onClick={() => setMemberStatus(recordId,'pending')}>Set pending</button>}{user.role === 'Administrator' && <button className="danger" onClick={() => deleteMember(recordId)}>Delete</button>}</span> : type === 'plans' && recordScope === 'team' && !reviewState ? <button className="row-action" onClick={() => onReviewPlan(recordId)}>Review</button> : type === 'attendance' && recordScope === 'team' && status === 'absent' && reviewState === 'pending' ? <span className="row-actions"><button onClick={() => reviewAttendanceExcuse(recordId,'approved')}>Approve</button><button onClick={() => reviewAttendanceExcuse(recordId,'rejected')}>Reject</button></span> : type === 'orders' && recordOwnerId === user.id && status === 'active' ? <span className="row-actions"><button onClick={() => updateOrderStatus(recordId,'completed')}>Complete</button><button onClick={() => updateOrderStatus(recordId,'cancelled')}>Cancel</button></span> : type === 'events' && status !== 'Done' ? <button className="row-action" onClick={() => completeEvent(recordId)}>Mark done</button> : type === 'feedbackinbox' && status !== 'resolved' ? <span className="row-actions"><button onClick={() => updateFeedbackStatus(recordId,'open')}>Open</button><button onClick={() => updateFeedbackStatus(recordId,'resolved')}>Resolve</button></span> : (type === 'notifications' || type === 'adminnotifications') ? <button className="row-action" onClick={() => openNotification(recordId,recordOwnerId)}>Open</button> : type === 'admindashboard' && status === 'Pending' ? <button className="row-action" onClick={() => approveMember(recordId)}>Approve</button> : (type === 'transfers' || type === 'transferapprovals') && status === 'Pending' && (user.role === 'Administrator' || user.role === 'Team leader' || user.isTeamLeader) ? <span className="row-actions"><button onClick={()=>decideTransfer(recordId,'approved')}>Approve</button><button onClick={()=>decideTransfer(recordId,'rejected')}>Reject</button></span> : <span className="record-value"><b>{value}</b><small>{status}</small></span>}</article>) : <div className="live-empty">{type === 'admindashboard' ? 'No registrations are awaiting approval.' : type === 'offices' ? `No ${activeTab === 0 ? 'active' : 'archived'} offices.` : type === 'orders' && activeTab > 0 ? `No ${activeTab === 1 ? 'active' : 'completed'} orders yet.` : type === 'team' ? 'No active downlines yet. Members will appear here after selecting you as their sponsor.' : 'No live records yet. Use the action above to add the first one.'}</div>}</section>
     {type === 'plans' && <aside className="info-note"><Sparkle /><div><strong>Friday review</strong><p>Your team leader will score this plan after the weekly cross-check.</p></div></aside>}
     {type === 'books' && <aside className="info-note"><CheckCircle /><div><strong>Currencies stay separate</strong><p>Naira and Dollar balances are calculated independently and are never added together.</p></div></aside>}
     {data.note && <aside className="info-note"><CheckCircle /><div><strong>{data.note[0]}</strong><p>{type === 'leaderdashboard' ? `You can review records for members assigned to ${user.ledOffice || 'your office'}. Other leaders’ personal records remain private.` : data.note[1]}</p></div></aside>}
@@ -1502,6 +1521,7 @@ function Placeholder({ page, user, onNavigate }) {
 function AppShell({ user }) {
   const params = new URLSearchParams(window.location.search)
   const [active, setActive] = useState(params.get('tab') || 'home')
+  const [navigationHistory, setNavigationHistory] = useState([])
   const [quickCreateOpen, setQuickCreateOpen] = useState(false)
   const [selectedOfficeId, setSelectedOfficeId] = useState(null)
   const [selectedPlanId, setSelectedPlanId] = useState(null)
@@ -1514,21 +1534,20 @@ function AppShell({ user }) {
   const viewingLeader = leaderPages.has(active)
   const isModule = Boolean(screenData[active])
   const isForm = Boolean(formData[active])
-  const goHome = () => setActive('home')
-  const setNavigation = id => setActive(id)
-  const goBack = () => {
-    if (active === 'officedetail') { setActive('offices'); return }
-    if (active === 'memberprofile') { setActive('team'); return }
-    if (active === 'admindashboard' || active === 'leaderdashboard') { setActive('home'); return }
-    if (adminPages.has(active)) { setActive('admindashboard'); return }
-    if (leaderPages.has(active)) { setActive('leaderdashboard'); return }
-    setActive('home')
+  const navigate = destination => {
+    if (active !== destination) setNavigationHistory(history => [...history, active])
+    setActive(destination)
   }
-  const selectOffice = officeId => { setSelectedOfficeId(officeId); setActive('officedetail') }
-  const reviewPlan = planId => { setSelectedPlanId(planId); setActive('reviewplan') }
-  const selectMember = memberId => { setSelectedMemberId(memberId); setActive('memberprofile') }
-  const openCreate = destination => { setQuickCreateOpen(false); setActive(destination) }
-  return <div className={`app-shell ${forceMobile ? 'force-mobile' : ''}`}>{isAdmin && <button className="portal-switch" onClick={() => setActive(viewingAdmin ? 'home' : 'admindashboard')}>{viewingAdmin ? 'My portal' : 'Admin dashboard'}</button>}{user.isTeamLeader && <button className="portal-switch leader-switch" onClick={() => setActive(viewingLeader ? 'home' : 'leaderdashboard')}>{viewingLeader ? 'My portal' : 'Team leader portal'}</button>}<aside className="sidebar"><Logo /><nav>{nav.map(({id,label,icon:Icon}) => <button key={id} className={active === id ? 'active' : ''} onClick={() => setNavigation(id)}><Icon weight={active === id ? 'fill' : 'regular'} /><span>{label}</span></button>)}</nav><div className="side-user"><div className="avatar">{user.initials}</div><span><strong>{user.name}</strong><small>{user.isTeamLeader ? `${user.role} · Team leader` : user.role}</small></span></div></aside><div className="app-main">{active === 'home' ? <HomePage onNavigate={setActive} user={user} /> : isModule ? <ModulePage type={active} onBack={goBack} onNavigate={setActive} onSelectOffice={selectOffice} onSelectMember={selectMember} onReviewPlan={reviewPlan} selectedOfficeId={selectedOfficeId} selectedMemberId={selectedMemberId} user={user} /> : isForm ? <FormPage type={active} onBack={() => active === 'reviewplan' ? setActive('plans') : goBack()} selectedPlanId={selectedPlanId} user={user} /> : <Placeholder page={active} user={user} onNavigate={setActive} />}</div>{!isModule && !isForm && <><nav className="bottom-nav">{nav.map(({id,label,icon:Icon}) => <button key={id} className={active === id ? 'active' : ''} onClick={() => setNavigation(id)}><Icon weight={active === id ? 'fill' : 'regular'} /><span>{label}</span></button>)}</nav><button className="fab" aria-label="Create a new record" aria-expanded={quickCreateOpen} onClick={() => setQuickCreateOpen(value => !value)}><Plus weight="bold" /></button>{quickCreateOpen && <div className="quick-create-backdrop" role="presentation" onClick={() => setQuickCreateOpen(false)}><section className="quick-create-sheet" role="dialog" aria-modal="true" aria-label="Create a new record" onClick={event => event.stopPropagation()}><div><span>Quick create</span><h2>What would you like to add?</h2></div><button onClick={() => openCreate('addorder')}><Briefcase weight="duotone" /><span><strong>Freelance order</strong><small>Record a new client project</small></span><ArrowRight /></button><button onClick={() => openCreate('addentry')}><Wallet weight="duotone" /><span><strong>Finance entry</strong><small>Add income or an expense</small></span><ArrowRight /></button><button onClick={() => openCreate('editplan')}><Target weight="duotone" /><span><strong>Weekly plan</strong><small>Create or update this week’s plan</small></span><ArrowRight /></button><button className="quick-create-cancel" onClick={() => setQuickCreateOpen(false)}>Cancel</button></section></div>}</>}</div>
+  const setNavigation = id => navigate(id)
+  const goBack = () => {
+    setActive(navigationHistory.at(-1) || 'home')
+    setNavigationHistory(history => history.slice(0,-1))
+  }
+  const selectOffice = officeId => { setSelectedOfficeId(officeId); navigate('officedetail') }
+  const reviewPlan = planId => { setSelectedPlanId(planId); navigate('reviewplan') }
+  const selectMember = memberId => { setSelectedMemberId(memberId); navigate('memberprofile') }
+  const openCreate = destination => { setQuickCreateOpen(false); navigate(destination) }
+  return <div className={`app-shell ${forceMobile ? 'force-mobile' : ''}`}>{isAdmin && <button className="portal-switch" onClick={() => navigate(viewingAdmin ? 'home' : 'admindashboard')}>{viewingAdmin ? 'My portal' : 'Admin dashboard'}</button>}{user.isTeamLeader && <button className="portal-switch leader-switch" onClick={() => navigate(viewingLeader ? 'home' : 'leaderdashboard')}>{viewingLeader ? 'My portal' : 'Team leader portal'}</button>}<aside className="sidebar"><Logo /><nav>{nav.map(({id,label,icon:Icon}) => <button key={id} className={active === id ? 'active' : ''} onClick={() => setNavigation(id)}><Icon weight={active === id ? 'fill' : 'regular'} /><span>{label}</span></button>)}</nav><div className="side-user"><div className="avatar">{user.initials}</div><span><strong>{user.name}</strong><small>{user.isTeamLeader ? `${user.role} · Team leader` : user.role}</small></span></div></aside><div className="app-main">{active === 'home' ? <HomePage onNavigate={navigate} user={user} /> : isModule ? <ModulePage type={active} onBack={goBack} onNavigate={navigate} onSelectOffice={selectOffice} onSelectMember={selectMember} onReviewPlan={reviewPlan} selectedOfficeId={selectedOfficeId} selectedMemberId={selectedMemberId} user={user} /> : isForm ? <FormPage type={active} onBack={goBack} selectedPlanId={selectedPlanId} user={user} /> : <Placeholder page={active} user={user} onNavigate={navigate} />}</div>{!isModule && !isForm && <><nav className="bottom-nav">{nav.map(({id,label,icon:Icon}) => <button key={id} className={active === id ? 'active' : ''} onClick={() => setNavigation(id)}><Icon weight={active === id ? 'fill' : 'regular'} /><span>{label}</span></button>)}</nav><button className="fab" aria-label="Create a new record" aria-expanded={quickCreateOpen} onClick={() => setQuickCreateOpen(value => !value)}><Plus weight="bold" /></button>{quickCreateOpen && <div className="quick-create-backdrop" role="presentation" onClick={() => setQuickCreateOpen(false)}><section className="quick-create-sheet" role="dialog" aria-modal="true" aria-label="Create a new record" onClick={event => event.stopPropagation()}><div><span>Quick create</span><h2>What would you like to add?</h2></div><button onClick={() => openCreate('addorder')}><Briefcase weight="duotone" /><span><strong>Freelance order</strong><small>Record a new client project</small></span><ArrowRight /></button><button onClick={() => openCreate('addentry')}><Wallet weight="duotone" /><span><strong>Finance entry</strong><small>Add income or an expense</small></span><ArrowRight /></button><button onClick={() => openCreate('editplan')}><Target weight="duotone" /><span><strong>Weekly plan</strong><small>Create or update this week’s plan</small></span><ArrowRight /></button><button className="quick-create-cancel" onClick={() => setQuickCreateOpen(false)}>Cancel</button></section></div>}</>}</div>
 }
 
 export default function App() {
