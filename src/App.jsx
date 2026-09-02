@@ -1626,6 +1626,10 @@ function AppShell({ user }) {
   const isModule = Boolean(screenData[active])
   const isForm = Boolean(formData[active])
   const navigate = destination => {
+    // Office scope should survive only when the user deliberately drills down
+    // from an office. Opening a directory from the main admin portal means all
+    // organization records, even if an office was viewed earlier.
+    if ((destination === 'orgmembers' || destination === 'leaders') && active !== 'officedetail') setSelectedOfficeId(null)
     if (active !== destination) setNavigationHistory(history => [...history, active])
     setActive(destination)
   }
