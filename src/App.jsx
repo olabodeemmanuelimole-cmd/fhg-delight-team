@@ -1518,10 +1518,12 @@ export default function App() {
     setAuthLoading(false)
   }
   useEffect(() => {
-    if (bypassAuth || !supabase) return
-    supabase.auth.getSession().then(({ data }) => loadAccount(data.session?.user || null))
+    if (bypassAuth) return
+    if (!supabase) { setAuthLoading(false); return }
+    const loadingTimeout = window.setTimeout(() => setAuthLoading(false), 10000)
+    supabase.auth.getSession().then(({ data }) => loadAccount(data.session?.user || null)).catch(() => setAuthLoading(false))
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => loadAccount(session?.user || null))
-    return () => listener.subscription.unsubscribe()
+    return () => { window.clearTimeout(loadingTimeout); listener.subscription.unsubscribe() }
   }, [])
   const authenticate = async account => { setAuthLoading(true); await loadAccount(account) }
   if (authLoading) return <main className="auth-loading"><Logo /><span>Opening your workspace…</span></main>
