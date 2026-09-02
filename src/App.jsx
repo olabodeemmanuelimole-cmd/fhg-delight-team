@@ -943,37 +943,52 @@ function ModulePage({ type, onBack, onNavigate, onSelectOffice, onSelectMember, 
         error = officeResult.error
         if (officeResult.data) {
           const membershipsResult = await supabase.from('office_memberships').select('user_id').eq('office_id',officeResult.data.id).is('ended_at',null)
-          const memberIds = (membershipsResult.data || []).map(item => item.user_id)
-          const [profilesResult, plansResult, attendanceResult, transfersResult] = memberIds.length ? await Promise.all([
+          const memberIds = [...new Set([user.id,...(membershipsResult.data || []).map(item => item.user_id)])]
+          const monthStart = new Date(); monthStart.setDate(1); monthStart.setHours(0,0,0,0)
+          const [profilesResult, plansResult, attendanceResult, transfersResult, ordersResult] = memberIds.length ? await Promise.all([
             supabase.from('profiles').select('id,status').in('id',memberIds),
             supabase.from('weekly_plans').select('completion_percent,reviewed_at').in('user_id',memberIds),
-            supabase.from('attendance').select('id,status,excuse_status').in('user_id',memberIds),
+            supabase.from('attendance').select('id,status,excuse_status').in('user_id',memberIds).gte('attendance_date',monthStart.toISOString().slice(0,10)),
             supabase.from('office_transfers').select('id,status').eq('to_office_id',officeResult.data.id),
-          ]) : [{data:[]},{data:[]},{data:[]},{data:[]}]
-          error = error || membershipsResult.error || profilesResult.error || plansResult.error || attendanceResult.error || transfersResult.error
+            supabase.from('orders').select('id,user_id,project_name,amount,fee_percent,status,created_at,profiles(full_name)').in('user_id',memberIds).gte('created_at',monthStart.toISOString()).order('created_at',{ascending:false}),
+          ]) : [{data:[]},{data:[]},{data:[]},{data:[]},{data:[]}]
+          error = error || membershipsResult.error || profilesResult.error || plansResult.error || attendanceResult.error || transfersResult.error || ordersResult.error
           const activeMembers = (profilesResult.data || []).filter(item => item.status === 'active').length
           const pendingPlans = (plansResult.data || []).filter(item => !item.reviewed_at).length
           const pendingExcuses = (attendanceResult.data || []).filter(item => item.status === 'absent' && item.excuse_status === 'pending').length
           const pendingTransfers = (transfersResult.data || []).filter(item => item.status === 'pending').length
           const completionValues = (plansResult.data || []).map(item => Number(item.completion_percent || 0))
           const averageCompletion = completionValues.length ? Math.round(completionValues.reduce((sum,value)=>sum+value,0)/completionValues.length) : 0
-          metrics = [['Active members',String(activeMembers)],['Weekly completion',`${averageCompletion}%`]]
+          const orders=ordersResult.data || []; const gross=orders.reduce((sum,item)=>sum+Number(item.amount),0)
+          const completedNet=orders.filter(item=>item.status==='completed').reduce((sum,item)=>sum+Number(item.amount)*(1-Number(item.fee_percent||0)/100),0)
+          const attended=(attendanceResult.data||[]).filter(item=>item.status==='present'||item.status==='late').length
+          const attendanceRate=attendanceResult.data?.length?Math.round(attended/attendanceResult.data.length*100):0
+          const dollars=amount=>`$${Number(amount||0).toLocaleString('en-US',{maximumFractionDigits:2})}`
+          metrics = [['Office members',String(activeMembers)],['Gross orders',dollars(gross)]]
           rows = [
+            ['Orders this month',`${orders.filter(item=>item.status==='active').length} active · ${orders.filter(item=>item.status==='completed').length} completed`,`${orders.length} total`,'Orders'],
+            ['Net completed earnings','After platform fees',dollars(completedNet),'Earnings'],
+            ['Office attendance',`${attended} attended of ${attendanceResult.data?.length||0} records`,`${attendanceRate}%`,'Attendance'],
+            ['Weekly plan progress','Average member completion',`${averageCompletion}%`,'Plans'],
             ['Weekly plans awaiting review','Friday scoring queue',String(pendingPlans),'Plans'],
             ['Office transfer requests','Incoming office approvals',String(pendingTransfers),'Approvals'],
             ['Attendance excuses','Absences awaiting review',String(pendingExcuses),'Attendance'],
+            ...orders.slice(0,3).map(item=>[item.project_name,`${item.profiles?.full_name||'Office member'} · ${item.status}`,dollars(item.amount),'Recent order']),
           ]
         } else rows = []
       } else if (type === 'admindashboard') {
-        const [profilesResult, officesResult, transfersResult] = await Promise.all([
+        const monthStart=new Date(); monthStart.setDate(1); monthStart.setHours(0,0,0,0)
+        const [profilesResult, officesResult, transfersResult, ordersResult] = await Promise.all([
           supabase.from('profiles').select('id,full_name,rank,role,status,created_at').order('created_at',{ascending:false}),
           supabase.from('offices').select('id,active'),
           supabase.from('office_transfers').select('id,status'),
+          supabase.from('orders').select('amount,fee_percent,status').gte('created_at',monthStart.toISOString()),
         ])
-        error = profilesResult.error || officesResult.error || transfersResult.error
+        error = profilesResult.error || officesResult.error || transfersResult.error || ordersResult.error
         const profiles = profilesResult.data || []; const pending = profiles.filter(item => item.status === 'pending')
-        rows = pending.map(item => [item.full_name, `${item.rank} · ${new Date(item.created_at).toLocaleDateString()}`, 'Review', 'Pending', item.id])
-        metrics = [['Total members',String(profiles.length)],['Active offices',String((officesResult.data || []).filter(item => item.active).length)]]
+        const orders=ordersResult.data||[]; const gross=orders.reduce((sum,item)=>sum+Number(item.amount),0)
+        rows = [['Organization orders',`${orders.filter(item=>item.status==='active').length} active · ${orders.filter(item=>item.status==='completed').length} completed`,`$${gross.toLocaleString('en-US',{maximumFractionDigits:2})}`,'This month'],...pending.map(item => [item.full_name, `${item.rank} · ${new Date(item.created_at).toLocaleDateString()}`, 'Review', 'Pending', item.id])]
+        metrics = [['Total members',String(profiles.length)],['Orders this month',String(orders.length)]]
       } else if (type === 'offices') {
         const result = await supabase.from('offices').select('id,name,location,leader_display_name,active').order('name')
         error = result.error
@@ -983,12 +998,12 @@ function ModulePage({ type, onBack, onNavigate, onSelectOffice, onSelectMember, 
         if (!selectedOfficeId) { error = { message:'Choose an office from the directory first.' } }
         else {
           const [officeResult,membershipsResult] = await Promise.all([
-            supabase.from('offices').select('id,name,location,leader_display_name,active').eq('id',selectedOfficeId).single(),
+            supabase.from('offices').select('id,name,location,leader_id,leader_display_name,active').eq('id',selectedOfficeId).single(),
             supabase.from('office_memberships').select('user_id').eq('office_id',selectedOfficeId).is('ended_at',null),
           ])
           error = officeResult.error || membershipsResult.error
           const office = officeResult.data
-          const memberIds = (membershipsResult.data || []).map(item => item.user_id)
+          const memberIds = [...new Set([...(membershipsResult.data || []).map(item => item.user_id),...(office?.leader_id?[office.leader_id]:[])])]
           let orders = []; let attendance = []; let plans = []
           if (memberIds.length) {
             const [ordersResult,attendanceResult,plansResult] = await Promise.all([
@@ -1021,8 +1036,11 @@ function ModulePage({ type, onBack, onNavigate, onSelectOffice, onSelectMember, 
         ])
         error = profilesResult.error || membershipsResult.error || invitationsResult.error
         const officeByUser = Object.fromEntries((membershipsResult.data || []).map(item => [item.user_id,item.office?.name || 'Office pending']))
+        if(type === 'members' && user.ledOffice)officeByUser[user.id]=user.ledOffice
         const scopeOfficeId = type === 'members' ? user.ledOfficeId : selectedOfficeId
-        const scopedMemberIds = scopeOfficeId ? new Set((membershipsResult.data || []).filter(item => item.office?.id === scopeOfficeId).map(item=>item.user_id)) : null
+        const scopedMemberIds = scopeOfficeId ? new Set([...(membershipsResult.data || []).filter(item => item.office?.id === scopeOfficeId).map(item=>item.user_id),...(type === 'members' ? [user.id] : [])]) : null
+        const scopeOfficeName = type === 'members' ? user.ledOffice : (membershipsResult.data || []).find(item=>item.office?.id===scopeOfficeId)?.office?.name
+        if(scopeOfficeName)setOfficeDetail({id:scopeOfficeId,name:scopeOfficeName})
         const profiles = (profilesResult.data || []).filter(item => ((type === 'orgmembers' || type === 'members') || item.role === 'team_leader') && (!scopedMemberIds || scopedMemberIds.has(item.id)))
         rows = profiles.map(item => [item.full_name, `${officeByUser[item.id] || 'Office pending'} · ${item.rank}`, item.role === 'team_leader' ? 'Team leader' : item.role === 'admin' ? 'Administrator' : 'Member', item.status, item.id])
         if (type === 'leaders') rows = [...(invitationsResult.data || []).map(item => [item.claimant?.full_name || 'Invitation not claimed', `${item.office?.name || 'Office'} · ${item.claimant?.rank || 'Registration link sent'}`, item.claimed_by ? 'Approval requested' : 'Awaiting registration', 'Pending', item.id, item.claimed_by, 'leader-invite']), ...rows]
@@ -1084,6 +1102,8 @@ function ModulePage({ type, onBack, onNavigate, onSelectOffice, onSelectMember, 
   const liveSubtitle = type === 'offices' ? `${displayMetrics[0]?.[1] || 0} active offices`
     : type === 'officedetail' ? `${officeDetail?.name || 'Selected office'} · ${officeDetail?.location || 'Office overview'}`
     : type === 'leaderdashboard' ? `${user.ledOffice || 'Assigned office'} · Team overview`
+    : type === 'members' ? `${user.ledOffice || user.office} · ${displayMetrics[0]?.[1] || 0} members`
+    : type === 'attendanceregister' ? `${user.ledOffice || user.office} · Office attendance`
     : type === 'attendance' ? `${recordScope === 'team' ? (user.ledOffice || user.office) : user.office} · ${activeTab === 0 ? 'This week' : 'This month'}`
     : type === 'plans' ? `${recordScope === 'team' ? (user.ledOffice || user.office) : 'Your plan'} · ${activeTab === 0 ? 'Current week' : 'Previous weeks'}`
     : type === 'teamreports' && selectedOfficeId ? `${officeDetail?.name || 'Selected office'} · Live report`
@@ -1092,6 +1112,7 @@ function ModulePage({ type, onBack, onNavigate, onSelectOffice, onSelectMember, 
     : type === 'leaders' ? `${displayMetrics[0]?.[1] || 0} team leaders`
     : type === 'orgmembers' ? `${displayMetrics[0]?.[1] || 0} ${selectedOfficeId ? `${officeDetail?.name || 'office'} members` : 'organization accounts'}`
     : data.subtitle
+  const liveHeroLabel = type === 'leaderdashboard' ? (user.ledOffice || 'Office performance') : type === 'members' ? (user.ledOffice || user.office) : type === 'attendanceregister' ? `${user.ledOffice || user.office} register` : type === 'orders' ? 'Current order earnings' : data.heroLabel
   const approveMember = async memberId => {
     setMessage('Approving member…')
     const { error } = await supabase.rpc('admin_set_profile_status', { target_user_id:memberId, new_status:'active' })
@@ -1249,7 +1270,7 @@ function ModulePage({ type, onBack, onNavigate, onSelectOffice, onSelectMember, 
   }
   const filterable = ['activity','orders','plans','books','attendance','withdrawals','team','announcements','feedback','events','notifications','adminnotifications','members','attendanceregister','transferapprovals','feedbackinbox','admindashboard','offices','leaders','orgmembers','transfers','reports','teamreports','auditlog','pointsettings'].includes(type)
   return <main className="detail-screen"><header className="detail-header"><button className="icon-button" aria-label="Go back" onClick={onBack}><ArrowLeft /></button><div><h1>{data.title}</h1><span>{liveSubtitle}</span></div><button className="icon-button" aria-label="Open notifications" onClick={() => onNavigate(type.startsWith('admin') ? 'adminnotifications' : 'notifications')}><Bell /></button></header><div className="detail-content">
-    <section className={`detail-hero ${type}`}><div className="detail-hero-title"><span><Icon weight="duotone" /></span><small>{data.heroLabel || (type === 'books' ? 'Finance overview' : type === 'orders' ? 'September earnings' : type === 'plans' ? 'Weekly progress' : 'Monthly attendance')}</small></div><div className="metric-pair">{displayMetrics.map(([label,value]) => <div key={label}><span>{label}</span><strong>{value}</strong></div>)}</div><button className="primary" onClick={runAction}>{type === 'officedetail' ? (officeDetail?.active ? <><CheckCircle />Archive office</> : <><CheckCircle />Activate office</>) : <><Plus weight="bold" />{data.action}</>}</button>{type === 'attendance' && <button className="detail-secondary" onClick={() => onNavigate('absence')}>Report absence</button>}</section>
+    <section className={`detail-hero ${type}`}><div className="detail-hero-title"><span><Icon weight="duotone" /></span><small>{liveHeroLabel || (type === 'books' ? 'Finance overview' : type === 'plans' ? 'Weekly progress' : 'Monthly attendance')}</small></div><div className="metric-pair">{displayMetrics.map(([label,value]) => <div key={label}><span>{label}</span><strong>{value}</strong></div>)}</div><button className="primary" onClick={runAction}>{type === 'officedetail' ? (officeDetail?.active ? <><CheckCircle />Archive office</> : <><CheckCircle />Activate office</>) : <><Plus weight="bold" />{data.action}</>}</button>{type === 'attendance' && <button className="detail-secondary" onClick={() => onNavigate('absence')}>Report absence</button>}</section>
     {(type === 'orders' || type === 'attendance' || type === 'plans' || type === 'books') && (user.isTeamLeader || user.role === 'Administrator') && <div className="segment-control scope-control"><button className={recordScope === 'mine' ? 'active' : ''} onClick={() => { setRecordScope('mine'); setActiveTab(0); setMessage('') }}>{type === 'orders' ? 'My orders' : type === 'attendance' ? 'My attendance' : type === 'plans' ? 'My plan' : 'My Finance'}</button><button className={recordScope === 'team' ? 'active' : ''} onClick={() => { setRecordScope('team'); setActiveTab(0); setMessage('') }}>{type === 'orders' ? (user.role === 'Administrator' ? 'Organization orders' : 'Team orders') : type === 'attendance' ? 'Office attendance' : type === 'plans' ? 'Team plans' : 'Office Finance'}</button></div>}
     <div className="segment-control">{displayTabs.map((tab,i) => <button className={i === activeTab ? 'active' : ''} onClick={() => { setActiveTab(i); setMessage('') }} key={tab}>{tab}</button>)}</div>
     {type === 'admindashboard' && <div className="admin-shortcuts"><button onClick={() => onNavigate('offices')}><Briefcase />Offices</button><button onClick={() => onNavigate('leaders')}><Users />Leaders</button><button onClick={() => onNavigate('orgmembers')}><Users />Members</button><button onClick={() => onNavigate('transfers')}><ArrowRight />Transfers</button><button onClick={() => onNavigate('reports')}><TrendUp />Reports</button><button onClick={() => onNavigate('pointsettings')}><Sparkle />Rewards</button><button onClick={() => onNavigate('auditlog')}><CheckCircle />Audit</button></div>}
