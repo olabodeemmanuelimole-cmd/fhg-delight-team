@@ -52,7 +52,8 @@ const demoUsers = {
 }
 
 function AuthPage({ onAuthenticate }) {
-  const [mode, setMode] = useState('signin')
+  const registrationInvite = new URLSearchParams(window.location.search).get('register') === '1'
+  const [mode, setMode] = useState(registrationInvite ? 'register' : 'signin')
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
   const submit = async event => {
@@ -64,7 +65,7 @@ function AuthPage({ onAuthenticate }) {
     const fullName = String(form.get('fullName') || 'TeamFlow Member')
     if (!isSupabaseConfigured) { setBusy(false); setMessage('Supabase is not configured yet.'); return }
     const result = mode === 'register'
-      ? await supabase.auth.signUp({ email, password, options: { data: { full_name: fullName } } })
+      ? await supabase.auth.signUp({ email, password, options: { data: { full_name: fullName }, emailRedirectTo: window.location.href } })
       : await supabase.auth.signInWithPassword({ email, password })
     if (result.error) { setMessage(result.error.message); setBusy(false); return }
     if (mode === 'register' && !result.data.session) {
@@ -79,6 +80,7 @@ function AuthPage({ onAuthenticate }) {
 
 function Onboarding({ onFinish, account }) {
   const params = new URLSearchParams(window.location.search)
+  const invitedOfficeId = params.get('office') || ''
   const draftKey = `teamflow-onboarding-${account?.id || 'guest'}`
   const savedDraft = (() => { try { return JSON.parse(localStorage.getItem(draftKey) || '{}') } catch { return {} } })()
   const initialStep = Math.min(4, Math.max(0, Number(params.get('step') ?? savedDraft.step ?? 0)))
@@ -90,7 +92,7 @@ function Onboarding({ onFinish, account }) {
   const [rank, setRank] = useState(savedDraft.rank || 'Newbie')
   const [ranks, setRanks] = useState(['Newbie', 'E-member', 'Distributor', 'Manager', 'Senior Manager'])
   const [office, setOffice] = useState(savedDraft.office || '')
-  const [officeId, setOfficeId] = useState(savedDraft.officeId || '')
+  const [officeId, setOfficeId] = useState(invitedOfficeId || savedDraft.officeId || '')
   const [offices, setOffices] = useState([])
   const [organization, setOrganization] = useState({ name: 'FHG Delight Team', director_name: 'Olabode Emmanuel Imole', director_title: 'Sapphire Director', welcome_message: 'Welcome to the team. We are delighted to have you join a community built on consistency, honest growth and people supporting one another.' })
   const [sponsorId, setSponsorId] = useState(savedDraft.sponsorId || '')
@@ -106,7 +108,7 @@ function Onboarding({ onFinish, account }) {
     supabase.from('offices').select('id,name,location,leader_display_name').eq('active', true).order('name').then(({ data }) => {
       const available = data || []
       setOffices(available)
-      const preferred = available.find(item => item.id === officeId) || available.find(item => item.name === office) || available[0]
+      const preferred = available.find(item => item.id === invitedOfficeId) || available.find(item => item.id === officeId) || available.find(item => item.name === office) || available[0]
       if (preferred) { setOffice(preferred.name); setOfficeId(preferred.id) }
     })
     supabase.from('ranks').select('name').eq('active', true).order('sort_order').then(({ data }) => {
@@ -160,6 +162,7 @@ function Onboarding({ onFinish, account }) {
     </section>,
     <section key="office">
       <div className="step-heading"><span>Your office</span><h2>Choose where you belong</h2><p>Your office determines the team leader who reviews and supports your activity.</p></div>
+      {invitedOfficeId && offices.some(item => item.id === invitedOfficeId) && <div className="interaction-message" role="status">Your team leader’s office has been selected from the invitation. You can change it if needed.</div>}
       {(offices.length ? offices : [{id:'',name:'Loading offices…',location:'Please wait'}]).map(item => <button type="button" className={`select-card ${office === item.name ? 'selected' : ''}`} onClick={() => { setOffice(item.name); setOfficeId(item.id) }} key={item.name} disabled={!item.id}><span className="office-symbol">{item.name.split(' ').map(word => word[0]).slice(0,2).join('')}</span><span><strong>{item.name}</strong><small>{item.location}{item.leader_display_name ? ` · ${item.leader_display_name}` : ''}</small></span>{office === item.name && item.id && <CheckCircle weight="fill" />}</button>)}
       <label>Sponsor<select value={sponsorId} onChange={event => setSponsorId(event.target.value)} disabled={!officeId || sponsorsLoading}><option value="">{sponsorsLoading ? 'Loading office members…' : sponsors.length ? 'Select a sponsor or continue without one' : 'No registered sponsors in this office yet'}</option>{sponsors.map(person => <option value={person.id} key={person.id}>{person.full_name} · {person.rank}{person.role === 'team_leader' ? ' · Team Leader' : ''}</option>)}</select><small className="field-help">Only eligible registered members in your selected office appear here.</small></label>
     </section>,
@@ -1165,7 +1168,34 @@ function ModulePage({ type, onBack, onNavigate, onSelectOffice, onSelectMember, 
     document.body.appendChild(link);link.click();link.remove();URL.revokeObjectURL(url)
     setMessage('Report downloaded successfully.')
   }
+  const shareInviteLink = async () => {
+    const officeId = type === 'members' ? user.ledOfficeId : selectedOfficeId || user.ledOfficeId || ''
+    if (type === 'members' && !officeId) {
+      setMessage('Assign yourself to an office before creating an office invitation.')
+      return
+    }
+    const inviteUrl = new URL(window.location.origin)
+    inviteUrl.searchParams.set('register', '1')
+    if (officeId) inviteUrl.searchParams.set('office', officeId)
+    const officeName = officeDetail?.name || user.ledOffice || user.office || 'TeamFlow'
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: `Join ${officeName} on TeamFlow`, text: `Create your TeamFlow account and join ${officeName}.`, url: inviteUrl.toString() })
+        setMessage('Invitation shared successfully.')
+        return
+      } catch (error) {
+        if (error?.name === 'AbortError') return
+      }
+    }
+    try {
+      await navigator.clipboard.writeText(inviteUrl.toString())
+      setMessage(officeId ? 'Office registration link copied. Send it to the new member.' : 'General registration link copied. The new member will choose an office.')
+    } catch {
+      window.prompt('Copy this registration link', inviteUrl.toString())
+    }
+  }
   const runAction = async () => {
+    if (type === 'team' || type === 'members' || type === 'orgmembers') { await shareInviteLink(); return }
     if (type === 'reports' || type === 'teamreports' || type === 'auditlog') { exportVisibleRows(); return }
     if (type === 'pointsettings') { changePointsConversion(); return }
     if (type === 'rewards') { setMessage('Your point history and the current Naira display value are shown below.'); return }
