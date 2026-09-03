@@ -286,6 +286,11 @@ const screenData = {
       ['Landing page deposit','30 Aug · Credit','+₦36,000','Pending'],
     ]
   },
+  bookdetail: {
+    title: 'Finance book', subtitle: 'Balance and transaction history', action: 'Add entry', icon: BookOpen,
+    heroLabel: 'Book balance', listTitle: 'Transactions', metrics: [['Balance','—'],['Entries','0']], tabs: ['All entries'], rows: [],
+    note: ['Complete transaction history','Credits increase the balance and debits reduce it. Every edited entry keeps its previous values.']
+  },
   withdrawals: {
     title: 'Withdrawals', subtitle: 'Recorded Finance withdrawals', action: 'Record withdrawal', icon: Wallet,
     heroLabel: 'Withdrawal history', listTitle: 'Recent withdrawals',
@@ -703,7 +708,7 @@ const screenData = {
 
 const moduleActionTargets = {
   activity: 'addorder', attendanceregister: 'markattendance',
-  orders: 'addorder', plans: 'editplan', books: 'addentry', attendance: 'checkin',
+  orders: 'addorder', plans: 'editplan', books: 'addentry', bookdetail:'addentry', attendance: 'checkin',
   withdrawals: 'recordwithdrawal',
   announcements: 'createannouncement', feedback: 'sendfeedback', events: 'createevent',
   leaderdashboard: 'createannouncement', feedbackinbox: 'createannouncement', memberprofile:'createannouncement',
@@ -711,7 +716,7 @@ const moduleActionTargets = {
   admindashboard: 'addoffice', offices: 'addoffice', leaders: 'assignleader', transfers: 'transfer', profile: 'editprofile', settings: 'editprofile', adminsettings: 'editprofile', announcementtargeting: 'createannouncement', pointsettings:'addpointrule',
 }
 
-function ModulePage({ type, onBack, onNavigate, onSelectOffice, onSelectMember, onReviewPlan, onEditOrder, onEditFinance, onViewFinanceHistory, selectedOfficeId, selectedMemberId, selectedTransactionId, user }) {
+function ModulePage({ type, onBack, onNavigate, onSelectOffice, onSelectMember, onSelectBook = bookId => { window.sessionStorage.setItem('teamflowSelectedBook',bookId); onNavigate('bookdetail') }, onReviewPlan, onEditOrder, onEditFinance, onViewFinanceHistory, selectedOfficeId, selectedMemberId, selectedBookId, selectedTransactionId, user }) {
   const data = screenData[type]
   const Icon = data.icon
   const [activeTab, setActiveTab] = useState(0)
@@ -723,10 +728,11 @@ function ModulePage({ type, onBack, onNavigate, onSelectOffice, onSelectMember, 
   const [officeDetail, setOfficeDetail] = useState(null)
   const [filterOpen, setFilterOpen] = useState(false)
   const [filterQuery, setFilterQuery] = useState('')
+  const effectiveBookId=selectedBookId||window.sessionStorage.getItem('teamflowSelectedBook')
   const liveAdminTypes = ['admindashboard','leaderdashboard','offices','officedetail','leaders','orgmembers','members','attendanceregister']
   const liveEngagementTypes = ['announcements','feedback','feedbackinbox','events','rewards','pointsettings','notifications','adminnotifications']
   const liveOperationTypes = ['team','memberprofile','withdrawals','history','transfers','transferapprovals','reports','teamreports','auditlog','profile','settings','adminsettings']
-  const isCoreModule = ['activity','orders','plans','attendance','books'].includes(type)
+  const isCoreModule = ['activity','orders','plans','attendance','books','bookdetail'].includes(type)
   const isLiveModule = isCoreModule || liveAdminTypes.includes(type) || liveEngagementTypes.includes(type) || liveOperationTypes.includes(type)
   useEffect(() => {
     if (!isLiveModule || !supabase) return
@@ -808,9 +814,10 @@ function ModulePage({ type, onBack, onNavigate, onSelectOffice, onSelectMember, 
         const previousRate = previousRows.length ? Math.round(previousAttended / previousRows.length * 100) : 0
         const difference = rate - previousRate
         metrics = [['Attendance rate',`${rate}%`],['Period trend',previousRows.length ? `${difference > 0 ? '+' : ''}${difference}%` : 'No prior data']]
-      } else if (type === 'books') {
+      } else if (type === 'books' || type === 'bookdetail') {
         let query = supabase.from('cash_books').select('id,owner_id,name,currency,visibility,cash_transactions(id,entry_type,amount,description,transaction_date,notes,created_at,updated_at)').order('created_at',{ascending:false})
-        if (recordScope === 'mine') query = query.eq('owner_id',user.id)
+        if (type === 'bookdetail') query = query.eq('id',effectiveBookId)
+        else if (recordScope === 'mine') query = query.eq('owner_id',user.id)
         else {
           query = query.eq('visibility','office')
           if (user.ledOfficeId) {
@@ -823,14 +830,19 @@ function ModulePage({ type, onBack, onNavigate, onSelectOffice, onSelectMember, 
         error = result.error
         const transactions = (result.data || []).flatMap(book => (book.cash_transactions || []).map(item => ({...item,book:book.name,currency:book.currency,owner_id:book.owner_id}))).sort((a,b) => new Date(b.created_at)-new Date(a.created_at))
         const formatCurrency = (amount,currency) => currency === 'USD' ? `$${Number(amount || 0).toLocaleString('en-US',{maximumFractionDigits:2})}` : money(amount)
-        const bookRows=(result.data||[]).map(book=>{
+        const bookRows=(type==='bookdetail'?[]:(result.data||[])).map(book=>{
           const balance=(book.cash_transactions||[]).reduce((sum,item)=>sum+(item.entry_type==='credit'?Number(item.amount):-Number(item.amount)),0)
-          return [book.name,`${book.currency} · ${book.visibility==='office'?'Office visible':'Personal'}`,formatCurrency(balance,book.currency),'book',null,book.owner_id,false]
+          return [book.name,`${book.currency} · ${book.visibility==='office'?'Office visible':'Personal'}`,formatCurrency(balance,book.currency),'book',null,book.owner_id,false,book.id]
         })
         const transactionRows=transactions.map(item => [item.description, `${item.book} · ${item.currency} · ${new Date(`${item.transaction_date}T00:00:00`).toLocaleDateString()}`, `${item.entry_type === 'credit' ? '+' : '-'}${formatCurrency(item.amount,item.currency)}`, item.entry_type, item.id, item.owner_id, item.updated_at !== item.created_at])
         rows=[...bookRows,...transactionRows]
         const balanceFor = currency => transactions.filter(item=>item.currency===currency).reduce((sum,item) => sum + (item.entry_type === 'credit' ? Number(item.amount) : -Number(item.amount)),0)
         metrics = [['Naira balance',money(balanceFor('NGN'))],['Dollar balance',`$${balanceFor('USD').toLocaleString('en-US',{maximumFractionDigits:2})}`]]
+        if(type==='bookdetail'){
+          const book=result.data?.[0]
+          const balance=book?(book.cash_transactions||[]).reduce((sum,item)=>sum+(item.entry_type==='credit'?Number(item.amount):-Number(item.amount)),0):0
+          metrics=[['Balance',book?formatCurrency(balance,book.currency):'—'],['Entries',String(book?.cash_transactions?.length||0)]]
+        }
       } else if (type === 'history') {
         if (!selectedTransactionId) error = {message:'Select a Finance entry to view its history.'}
         else {
@@ -1084,7 +1096,7 @@ function ModulePage({ type, onBack, onNavigate, onSelectOffice, onSelectMember, 
     }
     load()
     return () => { cancelled = true }
-  }, [type, refreshKey, recordScope, user.id, user.ledOfficeId, activeTab, selectedOfficeId, selectedMemberId, selectedTransactionId])
+  }, [type, refreshKey, recordScope, user.id, user.ledOfficeId, activeTab, selectedOfficeId, selectedMemberId, effectiveBookId, selectedTransactionId])
   const displayRows = isLiveModule ? (liveRows || []) : data.rows
   const displayMetrics = isLiveModule ? (liveMetrics || data.metrics) : data.metrics
   const visibleRows = displayRows.filter(row => {
@@ -1305,7 +1317,7 @@ function ModulePage({ type, onBack, onNavigate, onSelectOffice, onSelectMember, 
     {type === 'leaderdashboard' && <div className="admin-shortcuts"><button onClick={() => onNavigate('members')}><Users />Members</button><button onClick={() => onNavigate('transferapprovals')}><ArrowRight />Transfers</button><button onClick={() => onNavigate('teamreports')}><TrendUp />Reports</button></div>}
     {message && <div className="interaction-message" role="status">{message}</div>}
     {type === 'pointsettings' && user.role === 'Administrator' && <section className="reward-controls"><button className="detail-secondary" onClick={changePointsConversion}>Change Naira conversion</button>{visibleRows.map(row=><div className="reward-control-row" key={row[4]}><span><strong>{row[0]}</strong><small>{row[2]} · {row[3]}</small></span><span className="row-actions"><button onClick={()=>changePointsRule(row[4],Math.max(0,Number(row[6])-10),row[3]==='Active')}>−10</button><button onClick={()=>changePointsRule(row[4],Number(row[6])+10,row[3]==='Active')}>+10</button><button onClick={()=>changePointsRule(row[4],Number(row[6]),row[3]!=='Active')}>{row[3]==='Active'?'Disable':'Enable'}</button></span></div>)}</section>}
-    {type === 'books' && <section className="records finance-actions"><div className="section-title"><h2>{recordScope==='mine'?'Books and transactions':'Office books and transactions'}</h2>{filterable&&<button onClick={()=>{setFilterOpen(value=>!value);if(filterOpen)setFilterQuery('')}}>{filterOpen?'Close':'Filter'}</button>}</div>{filterOpen&&<input className="record-filter" value={filterQuery} onChange={event=>setFilterQuery(event.target.value)} placeholder="Search books and transactions" autoFocus/>}{visibleRows.length?visibleRows.map(([title,meta,value,status,recordId,recordOwnerId,wasEdited],index)=><article key={recordId||`book-${title}-${index}`}><span className={`record-symbol ${status}`}><BookOpen /></span><div><strong>{title}</strong><small>{meta}{wasEdited?' · Edited':''}</small><b>{value}</b></div>{recordId&&recordOwnerId===user.id?<span className="row-actions"><button onClick={()=>onEditFinance(recordId)}>Edit</button><button onClick={()=>onViewFinanceHistory(recordId)}>History</button><button className="danger" onClick={()=>deleteFinanceTransaction(recordId)}>Delete</button></span>:<span className="record-value"><small>{recordId?'View only':'Book balance'}</small></span>}</article>):<div className="live-empty">No Finance books yet. Create a book to begin.</div>}</section>}
+    {(type === 'books'||type==='bookdetail') && <section className="records finance-actions"><div className="section-title"><h2>{type==='bookdetail'?'Transactions':recordScope==='mine'?'Your Finance books':'Office Finance books'}</h2>{filterable&&<button onClick={()=>{setFilterOpen(value=>!value);if(filterOpen)setFilterQuery('')}}>{filterOpen?'Close':'Filter'}</button>}</div>{filterOpen&&<input className="record-filter" value={filterQuery} onChange={event=>setFilterQuery(event.target.value)} placeholder="Search Finance records" autoFocus/>}{visibleRows.length?visibleRows.map(([title,meta,value,status,recordId,recordOwnerId,wasEdited,bookId],index)=><article key={recordId||bookId||`book-${title}-${index}`}><span className={`record-symbol ${status}`}><BookOpen /></span><div><strong>{title}</strong><small>{meta}{wasEdited?' · Edited':''}</small><b>{value}</b></div>{status==='book'?<button className="row-action" onClick={()=>onSelectBook(bookId)}>Open</button>:recordId&&recordOwnerId===user.id?<span className="row-actions"><button onClick={()=>onEditFinance(recordId)}>Edit</button><button onClick={()=>onViewFinanceHistory(recordId)}>History</button><button className="danger" onClick={()=>deleteFinanceTransaction(recordId)}>Delete</button></span>:<span className="record-value"><small>View only</small></span>}</article>):<div className="live-empty">{type==='bookdetail'?'No transactions yet. Use Add entry to record income or an expense.':'No Finance books yet. Create a book to begin.'}</div>}</section>}
     <section className="records"><div className="section-title"><h2>{data.listTitle || (type === 'plans' ? (recordScope === 'team' ? 'Team submissions' : 'Your plan') : type === 'attendance' ? (recordScope === 'team' ? 'Office register' : 'Daily history') : 'Recent records')}</h2>{filterable && <button onClick={() => { setFilterOpen(value=>!value); if(filterOpen)setFilterQuery('') }}>{filterOpen?'Close':'Filter'}</button>}</div>{filterOpen && filterable && <input className="record-filter" value={filterQuery} onChange={event=>setFilterQuery(event.target.value)} placeholder="Search these records" autoFocus />}{visibleRows.length ? visibleRows.map(([title,meta,value,status,recordId,recordOwnerId,reviewState], index) => type === 'offices' ? <button className="office-directory-row" key={recordId} onClick={() => onSelectOffice(recordId)}><span className={`record-symbol ${status.toLowerCase()}`}><Briefcase /></span><span><strong>{title}</strong><small>{meta}</small></span><span className="record-value"><b>{value}</b><small>{status}</small></span><ArrowRight /></button> : type === 'team' ? <button className="office-directory-row" key={recordId} onClick={() => onSelectMember(recordId)}><span className={`record-symbol ${status.toLowerCase().replaceAll(' ','-')}`}><Users /></span><span><strong>{title}</strong><small>{meta}</small></span><span className="record-value"><b>{value}</b><small>{status}</small></span><ArrowRight /></button> : <article key={`${title}-${index}`}><span className={`record-symbol ${status.toLowerCase().replaceAll(' ','-')}`}><Icon /></span><div><strong>{title}</strong><small>{meta}</small></div>{type === 'leaders' && reviewState === 'leader-invite' ? <span className="row-actions">{recordOwnerId && <button onClick={()=>decideLeaderInvitation(recordId,'approved')}>Approve</button>}<button className="danger" onClick={()=>decideLeaderInvitation(recordId,'revoked')}>Revoke</button></span> : (type === 'orgmembers' || type === 'members') && recordId !== user.id ? <span className="row-actions member-actions">{status !== 'active' && <button onClick={() => setMemberStatus(recordId,'active')}>Approve</button>}{status === 'active' && <button onClick={() => setMemberStatus(recordId,'suspended')}>Suspend</button>}{status === 'suspended' && <button onClick={() => setMemberStatus(recordId,'pending')}>Set pending</button>}{user.role === 'Administrator' && <button className="danger" onClick={() => deleteMember(recordId)}>Delete</button>}</span> : type === 'plans' && recordScope === 'team' && !reviewState ? <button className="row-action" onClick={() => onReviewPlan(recordId)}>Review</button> : type === 'attendance' && recordScope === 'team' && status === 'absent' && reviewState === 'pending' ? <span className="row-actions"><button onClick={() => reviewAttendanceExcuse(recordId,'approved')}>Approve</button><button onClick={() => reviewAttendanceExcuse(recordId,'rejected')}>Reject</button></span> : type === 'orders' && recordOwnerId === user.id ? <span className="row-actions"><button onClick={() => onEditOrder(recordId)}>Edit</button>{status === 'active' ? <><button onClick={() => updateOrderStatus(recordId,'completed')}>Complete</button><button onClick={() => updateOrderStatus(recordId,'cancelled')}>Cancel</button></> : <button onClick={() => updateOrderStatus(recordId,'active')}>Reopen</button>}<button className="danger" onClick={()=>deleteOrder(recordId)}>Delete</button></span> : type === 'events' && status !== 'Done' ? <button className="row-action" onClick={() => completeEvent(recordId)}>Mark done</button> : type === 'feedbackinbox' && status !== 'resolved' ? <span className="row-actions"><button onClick={() => updateFeedbackStatus(recordId,'open')}>Open</button><button onClick={() => updateFeedbackStatus(recordId,'resolved')}>Resolve</button></span> : (type === 'notifications' || type === 'adminnotifications') ? <button className="row-action" onClick={() => openNotification(recordId,recordOwnerId)}>Open</button> : type === 'admindashboard' && status === 'Pending' ? <button className="row-action" onClick={() => approveMember(recordId)}>Approve</button> : (type === 'transfers' || type === 'transferapprovals') && status === 'Pending' && (user.role === 'Administrator' || user.role === 'Team leader' || user.isTeamLeader) ? <span className="row-actions"><button onClick={()=>decideTransfer(recordId,'approved')}>Approve</button><button onClick={()=>decideTransfer(recordId,'rejected')}>Reject</button></span> : <span className="record-value"><b>{value}</b><small>{status}</small></span>}</article>) : <div className="live-empty">{filterQuery ? 'No records match your search.' : type === 'admindashboard' ? 'No registrations are awaiting approval.' : type === 'offices' ? `No ${activeTab === 0 ? 'active' : 'archived'} offices.` : type === 'orders' && activeTab > 0 ? `No ${activeTab === 1 ? 'active' : 'completed'} orders yet.` : type === 'team' ? 'No active downlines yet. Members will appear here after selecting you as their sponsor.' : 'No live records yet. Use the action above to add the first one.'}</div>}</section>
     {type === 'plans' && <aside className="info-note"><Sparkle /><div><strong>Friday review</strong><p>Your team leader will score this plan after the weekly cross-check.</p></div></aside>}
     {type === 'books' && <aside className="info-note"><CheckCircle /><div><strong>Currencies stay separate</strong><p>Naira and Dollar balances are calculated independently and are never added together.</p></div></aside>}
@@ -1633,11 +1645,15 @@ function FormPage({ type, onBack, selectedPlanId, selectedOrderId, selectedTrans
     if (error) {
       const duplicateBook=error.message?.includes('cash_books_owner_id_name_currency_key') || error.code==='23505'
       setSubmitMessage(duplicateBook?'You already have a Finance book with this name and currency. Open the existing book or choose a different name.':error.message)
-    } else if (type === 'createbook') {
+    } else if (type === 'createbook' || type === 'addentry') {
       onBack()
     } else {
       setSubmitMessage('Saved successfully. Your live dashboard will now include this record.')
     }
+  }
+  if(type==='addentry'){
+    const preferredBookId=window.sessionStorage.getItem('teamflowSelectedBook')||''
+    return <main className="form-screen"><header className="detail-header"><button className="icon-button" aria-label="Go back" onClick={onBack}><ArrowLeft /></button><div><h1>{data.title}</h1><span>{data.subtitle}</span></div></header><div className="form-content"><div className="form-progress"><span>Finance record</span><strong>{preferredBookId?'Selected book ready':'Choose a Finance book'}</strong></div><form className="record-form" onSubmit={submitForm}><label>Finance book<select name="Finance book" required defaultValue={preferredBookId}><option value="" disabled>{userBooks.length?'Select a book':'Create a Finance book first'}</option>{userBooks.map(book=><option value={book.id} key={book.id}>{book.name} · {book.currency}</option>)}</select></label><label>Entry type<select name="Entry type" defaultValue="Credit (+)"><option>Credit (+)</option><option>Debit (-)</option></select></label><label>Amount<input name="Amount" required type="number" min="0.01" step="0.01" placeholder="0.00"/></label><label>Description<input name="Description" required maxLength="160" placeholder="What was this payment for?"/></label><label>Notes<textarea name="Notes" maxLength="1000" placeholder="Optional reference or explanation"/></label><aside className="info-note"><CheckCircle /><div><strong>Currency follows the book</strong><p>The selected book determines whether this entry is recorded in Naira or Dollars.</p></div></aside>{submitMessage&&<div className="interaction-message" role="status">{submitMessage}</div>}<button className="primary form-submit" disabled={submitting||!userBooks.length} type="submit">{submitting?'Saving…':data.submit}<ArrowRight /></button></form></div></main>
   }
   if (type === 'editfinance') return <main className="form-screen"><header className="detail-header"><button className="icon-button" aria-label="Go back" onClick={onBack}><ArrowLeft /></button><div><h1>{data.title}</h1><span>{data.subtitle}</span></div></header><div className="form-content"><div className="form-progress"><span>Finance record</span><strong>Every change is recorded</strong></div>{editingFinance ? <form key={editingFinance.id} className="record-form" onSubmit={submitForm}><label>Entry type<select name="Entry type" defaultValue={editingFinance.entry_type==='credit'?'Credit (+)':'Debit (-)'}><option>Credit (+)</option><option>Debit (-)</option></select></label><label>Amount<input name="Amount" required type="number" min="0.01" step="0.01" defaultValue={editingFinance.amount}/></label><label>Description<input name="Description" required maxLength="160" defaultValue={editingFinance.description}/></label><label>Transaction date<input name="Transaction date" required type="date" defaultValue={editingFinance.transaction_date}/></label><label>Notes<textarea name="Notes" maxLength="1000" defaultValue={editingFinance.notes||''}/></label><aside className="info-note"><CheckCircle /><div><strong>History stays visible</strong><p>{data.notice}</p></div></aside>{submitMessage&&<div className={`interaction-message ${submitMessage.startsWith('Saved')?'success':''}`} role="status">{submitMessage}</div>}<button className="primary form-submit" disabled={submitting} type="submit">{submitting?'Saving…':data.submit}<ArrowRight /></button></form>:<div className="live-empty">Loading Finance entry…</div>}</div></main>
   return <main className="form-screen"><header className="detail-header"><button className="icon-button" onClick={onBack}><ArrowLeft /></button><div><h1>{data.title}</h1><span>{type === 'editplan' ? planWeekSubtitle : data.subtitle}</span></div></header><div className="form-content">
