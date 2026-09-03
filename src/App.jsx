@@ -1630,7 +1630,14 @@ function FormPage({ type, onBack, selectedPlanId, selectedOrderId, selectedTrans
       ;({ error } = await supabase.rpc('admin_create_points_rule',{target_action:action,rule_points:numericAmount('Points')}))
     }
     setSubmitting(false)
-    setSubmitMessage(error ? error.message : 'Saved successfully. Your live dashboard will now include this record.')
+    if (error) {
+      const duplicateBook=error.message?.includes('cash_books_owner_id_name_currency_key') || error.code==='23505'
+      setSubmitMessage(duplicateBook?'You already have a Finance book with this name and currency. Open the existing book or choose a different name.':error.message)
+    } else if (type === 'createbook') {
+      onBack()
+    } else {
+      setSubmitMessage('Saved successfully. Your live dashboard will now include this record.')
+    }
   }
   if (type === 'editfinance') return <main className="form-screen"><header className="detail-header"><button className="icon-button" aria-label="Go back" onClick={onBack}><ArrowLeft /></button><div><h1>{data.title}</h1><span>{data.subtitle}</span></div></header><div className="form-content"><div className="form-progress"><span>Finance record</span><strong>Every change is recorded</strong></div>{editingFinance ? <form key={editingFinance.id} className="record-form" onSubmit={submitForm}><label>Entry type<select name="Entry type" defaultValue={editingFinance.entry_type==='credit'?'Credit (+)':'Debit (-)'}><option>Credit (+)</option><option>Debit (-)</option></select></label><label>Amount<input name="Amount" required type="number" min="0.01" step="0.01" defaultValue={editingFinance.amount}/></label><label>Description<input name="Description" required maxLength="160" defaultValue={editingFinance.description}/></label><label>Transaction date<input name="Transaction date" required type="date" defaultValue={editingFinance.transaction_date}/></label><label>Notes<textarea name="Notes" maxLength="1000" defaultValue={editingFinance.notes||''}/></label><aside className="info-note"><CheckCircle /><div><strong>History stays visible</strong><p>{data.notice}</p></div></aside>{submitMessage&&<div className={`interaction-message ${submitMessage.startsWith('Saved')?'success':''}`} role="status">{submitMessage}</div>}<button className="primary form-submit" disabled={submitting} type="submit">{submitting?'Saving…':data.submit}<ArrowRight /></button></form>:<div className="live-empty">Loading Finance entry…</div>}</div></main>
   return <main className="form-screen"><header className="detail-header"><button className="icon-button" onClick={onBack}><ArrowLeft /></button><div><h1>{data.title}</h1><span>{type === 'editplan' ? planWeekSubtitle : data.subtitle}</span></div></header><div className="form-content">
