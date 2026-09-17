@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react'
+import AttendanceVerification from './AttendanceVerification'
 import { ArrowLeft } from '@phosphor-icons/react/ArrowLeft'
 import { ArrowRight } from '@phosphor-icons/react/ArrowRight'
 import { Bell } from '@phosphor-icons/react/Bell'
@@ -1407,6 +1408,7 @@ function ModulePage({ type, onBack, onNavigate, onSelectOffice, onSelectMember, 
     {type === 'books' && recordScope === 'mine' && <div className="admin-shortcuts"><button onClick={() => onNavigate('createbook')}><BookOpen />New book</button><button onClick={() => onNavigate('withdrawals')}><Wallet />Withdrawals</button></div>}
     {type === 'feedback' && <div className="admin-shortcuts"><button onClick={() => onNavigate('anonymousmessage')}><Sparkle />Send anonymously</button></div>}
     {type === 'leaderdashboard' && <div className="admin-shortcuts"><button onClick={() => onNavigate('weeklyorders')}><Briefcase />Weekly orders</button>{user.leaderAccessLevel === 'full' && <><button onClick={() => onNavigate('members')}><Users />Members</button><button onClick={() => onNavigate('anonymousinbox')}><Bell />Anonymous inbox</button><button onClick={() => onNavigate('transferapprovals')}><ArrowRight />Transfers</button><button onClick={() => onNavigate('teamreports')}><TrendUp />Reports</button></>}</div>}
+    {(type === 'attendance' || type === 'attendanceregister') && <AttendanceVerification user={user} team={type === 'attendanceregister' || recordScope === 'team'} officeId={selectedOfficeId || user.ledOfficeId} onChange={() => setRefreshKey(value=>value+1)} />}
     {message && <div className="interaction-message" role="status">{message}</div>}
     {type === 'pointsettings' && user.role === 'Administrator' && <section className="reward-controls"><button className="detail-secondary" onClick={changePointsConversion}>Change Naira conversion</button>{visibleRows.map(row=><div className="reward-control-row" key={row[4]}><span><strong>{row[0]}</strong><small>{row[2]} · {row[3]}</small></span><span className="row-actions"><button onClick={()=>changePointsRule(row[4],Math.max(0,Number(row[6])-10),row[3]==='Active')}>−10</button><button onClick={()=>changePointsRule(row[4],Number(row[6])+10,row[3]==='Active')}>+10</button><button onClick={()=>changePointsRule(row[4],Number(row[6]),row[3]!=='Active')}>{row[3]==='Active'?'Disable':'Enable'}</button></span></div>)}</section>}
     {(type === 'books'||type==='bookdetail') && <section className="records finance-actions"><div className="section-title"><h2>{type==='bookdetail'?'Transactions':recordScope==='mine'?'Your Finance books':'Office Finance books'}</h2>{filterable&&<button onClick={()=>{setFilterOpen(value=>!value);if(filterOpen)setFilterQuery('')}}>{filterOpen?'Close':'Filter'}</button>}</div>{filterOpen&&<input className="record-filter" value={filterQuery} onChange={event=>setFilterQuery(event.target.value)} placeholder="Search Finance records" autoFocus/>}{visibleRows.length?visibleRows.map(([title,meta,value,status,recordId,recordOwnerId,wasEdited,bookId],index)=><article key={recordId||bookId||`book-${title}-${index}`}><span className={`record-symbol ${status}`}><BookOpen /></span><div><strong>{title}</strong><small>{meta}{wasEdited?' · Edited':''}</small><b>{value}</b></div>{status==='book'?<button className="row-action" onClick={()=>onSelectBook(bookId)}>Open</button>:recordId&&recordOwnerId===user.id?<span className="row-actions"><button onClick={()=>onEditFinance(recordId)}>Edit</button><button onClick={()=>onViewFinanceHistory(recordId)}>History</button><button className="danger" onClick={()=>deleteFinanceTransaction(recordId)}>Delete</button></span>:<span className="record-value"><small>View only</small></span>}</article>):<div className="live-empty">{type==='bookdetail'?'No transactions yet. Use Add entry to record income or an expense.':'No Finance books yet. Create a book to begin.'}</div>}</section>}
@@ -1457,7 +1459,7 @@ const formData = {
   },
   checkin: {
     title: 'Office check-in', subtitle: 'Record today’s attendance', submit: 'Confirm check-in',
-    notice: 'Your arrival time is recorded when you confirm. Report an absence only when you could not attend.',
+    notice: 'Your check-in starts yellow, awaiting physical verification by your office leader. Return to Attendance to see your daily sign-out code. It becomes green after approval.',
     fields: [
       ['Office','Your selected office','profile-office'],
       ['Attendance date','','today-readonly'],
@@ -1467,7 +1469,7 @@ const formData = {
   },
   markattendance: {
     title: 'Mark team attendance', subtitle: 'Record attendance for an office member', submit: 'Save attendance',
-    notice: 'You can record attendance only for members assigned to the office you lead. Marking an absence requires a category and explanation.',
+    notice: 'The member must check in first. Saving verifies their physical presence. You can also use the pending queue in the Attendance register. Members report their own absences.',
     fields: [
       ['Office member','Select a member','dynamic-office-member'],
       ['Attendance status','Present','attendance-status'],

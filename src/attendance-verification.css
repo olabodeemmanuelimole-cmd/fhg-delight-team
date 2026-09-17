@@ -1,0 +1,17 @@
+.attendance-verification { margin-block: 24px; padding: 24px; background: var(--white, #fff); border-radius: 16px; }
+.verification-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.verification-heading h2 { margin: 0; font-size: 20px; }
+.attendance-verification p { line-height: 1.6; }
+.attendance-verification label { display: grid; gap: 8px; margin-block: 16px; font-weight: 600; }
+.attendance-verification input, .attendance-verification select { width: 100%; padding: 12px; border: 1px solid #c6d1dd; border-radius: 8px; color: #102039; background: #fff; font: inherit; }
+.attendance-verification ul { list-style: none; margin: 16px 0 0; padding: 0; }
+.attendance-verification li { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; padding-block: 16px; border-bottom: 1px solid #e2e8ef; }
+.attendance-verification li div { display: grid; gap: 8px; }
+.attendance-stage { display: inline-block; width: fit-content; padding: 6px 10px; border-radius: 8px; font-size: 14px; font-weight: 600; }
+.attendance-stage.red { color: #a32136; background: #fde9ed; }
+.attendance-stage.yellow { color: #785000; background: #fff2ce; }
+.attendance-stage.green { color: #086043; background: #d9f6e9; }
+.checkout-code { letter-spacing: .12em; overflow-wrap: anywhere; }
+.attendance-verification button:disabled { opacity: .6; cursor: not-allowed; }
+.attendance-verification :focus-visible { outline: 2px solid #087957; outline-offset: 3px; }
+@media (max-width: 480px) { .attendance-verification { padding: 16px; } }
