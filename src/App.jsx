@@ -1902,6 +1902,47 @@ export default function App() {
     return () => { window.clearTimeout(loadingTimeout); listener.subscription.unsubscribe() }
   }, [])
   const authenticate = async account => { setAuthLoading(true); await loadAccount(account) }
+  useEffect(() => {
+    if (bypassAuth || !supabase || !user?.id) return
+    const accountId = user.id
+    let cancelled = false
+    let refreshing = false
+    const refreshProfile = async () => {
+      if (cancelled || refreshing || document.visibilityState === 'hidden') return
+      refreshing = true
+      try {
+        const { data: profile, error } = await supabase.from('profiles')
+          .select('full_name,role,rank,status,leader_access_level').eq('id',accountId).maybeSingle()
+        // Preserve the last known state on connection errors, never invent pending.
+        if (cancelled || error || !profile) return
+        const role = profile.role === 'admin' ? 'Administrator' : profile.role === 'team_leader' ? 'Team leader' : 'Member'
+        setUser(previous => {
+          if (!previous || previous.id !== accountId) return previous
+          const updated = { ...previous, name:profile.full_name || previous.name, role, rank:profile.rank || previous.rank, status:profile.status, leaderAccessLevel:profile.leader_access_level || (profile.role === 'admin' ? 'full' : 'limited') }
+          updated.initials = updated.name.split(' ').slice(0,2).map(part=>part[0]).join('').toUpperCase()
+          return ['name','role','rank','status','leaderAccessLevel'].every(key=>previous[key]===updated[key]) ? previous : updated
+        })
+      } catch { /* A temporary network failure must not undo an approval. */ }
+      finally { refreshing = false }
+    }
+    // Realtime is immediate when enabled; polling also works without database setup.
+    const channel = supabase.channel(`account-status-${accountId}`)
+      .on('postgres_changes',{event:'UPDATE',schema:'public',table:'profiles',filter:`id=eq.${accountId}`},refreshProfile)
+      .subscribe()
+    const timer = window.setInterval(refreshProfile,10000)
+    window.addEventListener('focus',refreshProfile)
+    window.addEventListener('online',refreshProfile)
+    document.addEventListener('visibilitychange',refreshProfile)
+    refreshProfile()
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+      window.removeEventListener('focus',refreshProfile)
+      window.removeEventListener('online',refreshProfile)
+      document.removeEventListener('visibilitychange',refreshProfile)
+      supabase.removeChannel(channel)
+    }
+  }, [user?.id,bypassAuth])
   if (authLoading) return <main className="auth-loading"><Logo /><span>Opening your workspace…</span></main>
   if (!user) return <AuthPage onAuthenticate={authenticate} />
   const finishOnboarding = async () => {
