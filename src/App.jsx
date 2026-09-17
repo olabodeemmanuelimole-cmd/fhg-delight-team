@@ -1786,7 +1786,24 @@ function FormPage({ type, onBack, selectedPlanId, selectedOrderId, selectedTrans
   </div></main>
 }
 
-function Placeholder({ page, user, onNavigate }) {
+function Placeholder({ page, user, onNavigate: navigatePage }) {
+  const [signingOut, setSigningOut] = useState(false)
+  const onNavigate = async destination => {
+    if (signingOut) return
+    if (destination !== 'account-signout') { navigatePage(destination); return }
+    if (!window.confirm('Sign out of your TeamFlow account on this device? This does not sign you out of office attendance.')) return
+    setSigningOut(true)
+    try {
+      if (!supabase) { window.location.assign(window.location.pathname); return }
+      const { error } = await supabase.auth.signOut({ scope: 'local' })
+      if (error) throw error
+      // Clear the current screen/query state, but preserve unrelated device settings.
+      window.location.assign(window.location.pathname)
+    } catch (error) {
+      window.alert(`Could not sign out: ${error.message || 'Connection interrupted'}. Please try again.`)
+      setSigningOut(false)
+    }
+  }
   const content = {
     activity: ['Activity', 'Everything you are working on', modules],
     team: ['My team', 'Your sponsorship network', [{icon: Users,label:'Direct recruits',sub:'3 members',color:'navy'},{icon: TrendUp,label:'Team performance',sub:'+12% this month',color:'green'}]],
@@ -1795,6 +1812,7 @@ function Placeholder({ page, user, onNavigate }) {
   }[page]
   const destinations = {'Personal finance':'books','Office earnings':'books','Announcements':'announcements','Anonymous message':'anonymousmessage','Suggestions':'feedback','Events':'events','Points & rewards':'rewards','Change office':'transfers','Profile & settings':'profile','Direct recruits':'team','Team performance':'team'}
   const createTarget = page === 'finances' ? 'addentry' : page === 'more' ? 'sendfeedback' : 'addorder'
+  if (page === 'more') content[2].push({ id:'account-signout', icon:ArrowRight, label:signingOut ? 'Signing out…' : 'Sign out of account', sub:'Return to login on this device · not attendance checkout', color:'navy' })
   return <><Topbar user={user} onNavigate={onNavigate} /><main className="page-content"><div className="page-heading"><span>Workspace</span><h2>{content[0]}</h2><p>{content[1]}</p></div><div className="feature-list">{content[2].map(({id,icon:Icon,label,sub,color}) => <button key={label} onClick={() => onNavigate(id || destinations[label])}><span className={`module-icon ${color}`}><Icon /></span><span><strong>{label}</strong><small>{sub}</small></span><ArrowRight /></button>)}</div><div className="empty-panel"><span><Plus /></span><h3>Add your first record</h3><p>New items will appear here once you start tracking your activity.</p><button className="primary" onClick={() => onNavigate(createTarget)}>Create record</button></div></main></>
 }
 
