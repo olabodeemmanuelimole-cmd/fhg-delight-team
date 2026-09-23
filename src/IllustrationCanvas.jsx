@@ -1,12 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { supabase } from './supabase'
 
-export default function IllustrationCanvas({ projectId, dirty }) {
+export default function IllustrationCanvas({ projectId, dirty, preparedRequest, onGenerated }) {
   const [images,setImages]=useState([]), [selected,setSelected]=useState(null), [reference,setReference]=useState('')
   const [prompt,setPrompt]=useState(''), [ratio,setRatio]=useState('1:1'), [busy,setBusy]=useState(false)
   const [error,setError]=useState(''), [zoom,setZoom]=useState(1), [revision,setRevision]=useState(0)
   const [admin,setAdmin]=useState(false), [loading,setLoading]=useState(true)
   const canvas=useRef(null)
+  useEffect(()=>{if(preparedRequest){setPrompt(preparedRequest.prompt);setReference(preparedRequest.referenceId || '')}},[preparedRequest])
   useEffect(()=>{
     let ignore=false
     setLoading(true); setError('')
@@ -34,8 +35,9 @@ export default function IllustrationCanvas({ projectId, dirty }) {
     if(!window.confirm('Send this description, your saved style, and the selected reference (if any) to Google Gemini? API charges may apply.'))return
     setBusy(true);setError('')
     try{
-      const {error}=await supabase.functions.invoke('illustration-generate',{body:{projectId,prompt,aspectRatio:ratio,referenceId:reference||null,requestId:crypto.randomUUID()}})
+      const {data,error}=await supabase.functions.invoke('illustration-generate',{body:{projectId,prompt,aspectRatio:ratio,referenceId:reference||null,requestId:crypto.randomUUID()}})
       if(error){let message=error.message;try{message=(await error.context.json()).error||message}catch{}throw new Error(message)}
+      if(data?.id) { setSelected({id:data.id}); onGenerated?.(data.id) }
       setRevision(n=>n+1)
     }catch(e){setError(e.message+' Do not immediately retry an uncertain timeout: refresh the artwork list first.')}
     finally{setBusy(false)}

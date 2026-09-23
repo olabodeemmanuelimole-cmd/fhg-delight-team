@@ -1,8 +1,11 @@
 import { createClient } from 'npm:@supabase/supabase-js@2'
 const origin = Deno.env.get('APP_ORIGIN') || 'https://teamflow-fhg-delight.vercel.app'
-const headers = { 'Access-Control-Allow-Origin': origin, 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type', 'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Content-Type': 'application/json' }
-const reply = (status: number, data: unknown) => new Response(JSON.stringify(data), { status, headers })
 Deno.serve(async req => {
+  const allowedOrigins = [origin, ...(Deno.env.get('ADDITIONAL_APP_ORIGINS') || '').split(',').map(value => value.trim()).filter(Boolean)]
+  const requestOrigin = req.headers.get('Origin')
+  const headers = { 'Access-Control-Allow-Origin': requestOrigin && allowedOrigins.includes(requestOrigin) ? requestOrigin : origin, 'Vary': 'Origin', 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type', 'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Content-Type': 'application/json' }
+  const reply = (status: number, data: unknown) => new Response(JSON.stringify(data), { status, headers })
+  if (requestOrigin && !allowedOrigins.includes(requestOrigin)) return reply(403, { error: 'This app origin is not enabled for generation.' })
   if (req.method === 'OPTIONS') return new Response(null, { headers })
   if (req.method !== 'POST') return reply(405, { error: 'POST required' })
   const key = Deno.env.get('GEMINI_API_KEY')

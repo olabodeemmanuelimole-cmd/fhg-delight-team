@@ -7,30 +7,42 @@ function renderHumanAdultPreview(styleId) {
       return (
         <svg viewBox="0 0 160 120" className="style-preview-svg" xmlns="http://www.w3.org/2000/svg">
           <defs>
-            <radialGradient id="g3d-bg" cx="50%" cy="40%" r="60%">
-              <stop offset="0%" stopColor="#334155"/>
-              <stop offset="100%" stopColor="#0f172a"/>
+            <radialGradient id="g3d-bg" cx="50%" cy="35%" r="70%">
+              <stop offset="0%" stopColor="#1e3a8a"/>
+              <stop offset="60%" stopColor="#0f172a"/>
+              <stop offset="100%" stopColor="#020617"/>
             </radialGradient>
-            <radialGradient id="g3d-skin" cx="35%" cy="30%" r="70%">
+            <radialGradient id="g3d-skin" cx="32%" cy="28%" r="72%">
               <stop offset="0%" stopColor="#ffedd5"/>
-              <stop offset="75%" stopColor="#fed7aa"/>
-              <stop offset="100%" stopColor="#fdba74"/>
+              <stop offset="45%" stopColor="#fed7aa"/>
+              <stop offset="85%" stopColor="#f97316"/>
+              <stop offset="100%" stopColor="#9a3412"/>
             </radialGradient>
-            <radialGradient id="g3d-hair" cx="35%" cy="25%" r="75%">
-              <stop offset="0%" stopColor="#475569"/>
-              <stop offset="80%" stopColor="#1e293b"/>
+            <radialGradient id="g3d-hair" cx="30%" cy="20%" r="80%">
+              <stop offset="0%" stopColor="#64748b"/>
+              <stop offset="50%" stopColor="#334155"/>
               <stop offset="100%" stopColor="#0f172a"/>
             </radialGradient>
+            <radialGradient id="g3d-iris" cx="35%" cy="30%" r="70%">
+              <stop offset="0%" stopColor="#38bdf8"/>
+              <stop offset="60%" stopColor="#0284c7"/>
+              <stop offset="100%" stopColor="#0f172a"/>
+            </radialGradient>
+            <linearGradient id="g3d-shirt" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stopColor="#3b82f6"/>
+              <stop offset="50%" stopColor="#1d4ed8"/>
+              <stop offset="100%" stopColor="#1e3a8a"/>
+            </linearGradient>
           </defs>
           <rect width="160" height="120" rx="8" fill="url(#g3d-bg)"/>
           {/* Shoulders & Collared Shirt */}
-          <path d="M25 120 C32 94 58 90 80 90 C102 90 128 94 135 120 Z" fill="#2563eb"/>
+          <path d="M25 120 C32 94 58 90 80 90 C102 90 128 94 135 120 Z" fill="url(#g3d-shirt)"/>
           <path d="M70 90 L80 106 L90 90 Z" fill="#ffffff"/>
           {/* Neck */}
           <rect x="71" y="74" width="18" height="18" rx="4" fill="#fed7aa"/>
           {/* Human Ears */}
-          <ellipse cx="53" cy="52" rx="4" ry="7" fill="#fed7aa"/>
-          <ellipse cx="107" cy="52" rx="4" ry="7" fill="#fed7aa"/>
+          <ellipse cx="53" cy="52" rx="4.5" ry="7.5" fill="#fed7aa"/>
+          <ellipse cx="107" cy="52" rx="4.5" ry="7.5" fill="#fed7aa"/>
           {/* Human Head & Face */}
           <ellipse cx="80" cy="50" rx="26" ry="32" fill="url(#g3d-skin)"/>
           {/* Human Hair Style */}
@@ -38,13 +50,17 @@ function renderHumanAdultPreview(styleId) {
           {/* Eyebrows */}
           <path d="M60 40 Q68 37 75 41" stroke="#1e293b" strokeWidth="2.5" strokeLinecap="round" fill="none"/>
           <path d="M85 41 Q92 37 100 40" stroke="#1e293b" strokeWidth="2.5" strokeLinecap="round" fill="none"/>
-          {/* Eyes */}
-          <circle cx="67" cy="46" r="4.5" fill="#1e293b"/>
-          <circle cx="93" cy="46" r="4.5" fill="#1e293b"/>
-          <circle cx="65.5" cy="44.5" r="1.5" fill="#ffffff"/>
-          <circle cx="91.5" cy="44.5" r="1.5" fill="#ffffff"/>
+          {/* Expressive 3D Eyes */}
+          <ellipse cx="67" cy="46" rx="5" ry="5.5" fill="#ffffff"/>
+          <ellipse cx="93" cy="46" rx="5" ry="5.5" fill="#ffffff"/>
+          <circle cx="67" cy="46" r="4" fill="url(#g3d-iris)"/>
+          <circle cx="93" cy="46" r="4" fill="url(#g3d-iris)"/>
+          <circle cx="65.5" cy="44.2" r="1.6" fill="#ffffff"/>
+          <circle cx="91.5" cy="44.2" r="1.6" fill="#ffffff"/>
+          <circle cx="68.2" cy="47.5" r="0.7" fill="#ffffff"/>
+          <circle cx="94.2" cy="47.5" r="0.7" fill="#ffffff"/>
           {/* Nose & Mouth */}
-          <path d="M78 50 L82 57 L77 60" stroke="#ea580c" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" fill="none" opacity="0.6"/>
+          <path d="M78 50 L82 57 L77 60" stroke="#ea580c" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" fill="none" opacity="0.65"/>
           <path d="M71 67 Q80 73 89 67" stroke="#9a3412" strokeWidth="2" strokeLinecap="round" fill="none"/>
         </svg>
       )

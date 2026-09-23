@@ -1,6 +1,6 @@
 // Versioned project presets; saved snapshots keep existing projects stable.
 const rows = [
-  ['3d-storybook', '3D Animated Storybook', 'Rounded sculpted forms', 'Expressive stylised proportions', 'Soft tactile materials', 'Soft dimensional lighting', 'Rich controlled colours', 'Stylised 3D render'],
+  ['3d-storybook', '3D Cinematic Storybook', 'Rounded sculpted forms', 'Expressive stylised proportions', 'Soft tactile materials', 'Soft cinematic lighting', 'Rich controlled colours', 'Warm 3D animated character design, rounded expressive features, soft cinematic lighting, rich colours, and a polished family-film finish.'],
   ['watercolour', 'Watercolour', 'Loose organic contours', 'Gentle natural proportions', 'Transparent washes and paper grain', 'Diffuse daylight', 'Layered translucent colours', 'Painted washes with reserved highlights'],
   ['gouache', 'Gouache', 'Bold painted silhouettes', 'Simplified expressive proportions', 'Opaque matte brushwork', 'Broad light and shadow masses', 'Opaque balanced colours', 'Layered hand-painted finish'],
   ['paper', 'Paper Cutout', 'Cut-paper silhouettes', 'Graphic simplified proportions', 'Layered paper edges', 'Subtle cast shadows', 'Limited contrasting palette', 'Dimensional paper collage'],
