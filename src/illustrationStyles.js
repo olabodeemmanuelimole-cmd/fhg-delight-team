@@ -17,7 +17,11 @@ const rows = [
   ['comic', 'Comic', 'Confident contour lines', 'Expressive consistent anatomy', 'Ink and graphic fills', 'Clear dramatic shadow shapes', 'Limited bold palette', 'Sequential-art ink finish'],
   ['digital', 'Realistic Digital Painting', 'Observed organic forms', 'Natural anatomy and scale', 'Material-specific painted surfaces', 'Physically coherent light', 'Natural controlled palette', 'Detailed digital paint'],
 ]
-export const illustrationStyles = rows.map(([id, name, shapes, proportions, texture, lighting, colour, rendering]) => ({ id, name, version: 1, shapes, proportions, texture, lighting, colour, rendering }))
+
+export const illustrationStyles = rows.map(([id, name, shapes, proportions, texture, lighting, colour, rendering]) => ({
+  id, name, version: 1, shapes, proportions, texture, lighting, colour, rendering
+}))
+
 export function validateIllustration(brief) {
   if (!['manual', 'manuscript'].includes(brief.creationMode)) return 'Choose Manual or Manuscript-assisted creation.'
   if (!illustrationStyles.some(style => style.id === brief.stylePreset?.id)) return 'Choose a built-in art style.'

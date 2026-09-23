@@ -48,12 +48,6 @@ function Logo() {
   return <div className="brand"><span className="brand-mark"><TrendUp weight="bold" /></span><span>TeamFlow</span></div>
 }
 
-const demoUsers = {
-  member: { name: 'Amara Okafor', initials: 'AO', role: 'Member', rank: 'Newbie', office: 'Ikeja Central' },
-  leader: { name: 'Kelechi Adebayo', initials: 'KA', role: 'Team leader', rank: 'Senior Manager', office: 'Ikeja Central' },
-  admin: { name: 'Olabode Emmanuel Imole', initials: 'OE', role: 'Administrator', rank: 'Qualified Sapphire Director', office: 'Delight Team Office' },
-}
-
 function AuthPage({ onAuthenticate }) {
   const registrationInvite = new URLSearchParams(window.location.search).get('register') === '1'
   const [mode, setMode] = useState(registrationInvite ? 'register' : 'signin')
@@ -1866,11 +1860,9 @@ function AppShell({ user }) {
 }
 
 export default function App() {
-  const params = new URLSearchParams(window.location.search)
-  const bypassAuth = params.get('view') === 'dashboard'
-  const [user, setUser] = useState(bypassAuth ? demoUsers.member : null)
-  const [onboarded, setOnboarded] = useState(bypassAuth)
-  const [authLoading, setAuthLoading] = useState(!bypassAuth)
+  const [user, setUser] = useState(null)
+  const [onboarded, setOnboarded] = useState(false)
+  const [authLoading, setAuthLoading] = useState(true)
   const loadAccount = async authUser => {
     if (!authUser) { setUser(null); setAuthLoading(false); return }
     const { data: profile } = await supabase
@@ -1900,7 +1892,6 @@ export default function App() {
     setAuthLoading(false)
   }
   useEffect(() => {
-    if (bypassAuth) return
     if (!supabase) { setAuthLoading(false); return }
     const loadingTimeout = window.setTimeout(() => setAuthLoading(false), 10000)
     supabase.auth.getSession().then(({ data }) => loadAccount(data.session?.user || null)).catch(() => setAuthLoading(false))
@@ -1909,7 +1900,7 @@ export default function App() {
   }, [])
   const authenticate = async account => { setAuthLoading(true); await loadAccount(account) }
   useEffect(() => {
-    if (bypassAuth || !supabase || !user?.id) return
+    if (!supabase || !user?.id) return
     const accountId = user.id
     let cancelled = false
     let refreshing = false
@@ -1948,7 +1939,7 @@ export default function App() {
       document.removeEventListener('visibilitychange',refreshProfile)
       supabase.removeChannel(channel)
     }
-  }, [user?.id,bypassAuth])
+  }, [user?.id])
   if (authLoading) return <main className="auth-loading"><Logo /><span>Opening your workspace…</span></main>
   if (!user) return <AuthPage onAuthenticate={authenticate} />
   const finishOnboarding = async () => {
