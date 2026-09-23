@@ -9,39 +9,201 @@ const LS_ACTIVE_PROJECT_KEY = 'sw_active_project'
 const LS_CHARACTERS_KEY = 'sw_characters'
 const LS_SCENES_KEY = 'sw_scenes'
 
-// Helper: Offline SVG Generator for fallback images
-function renderOfflineSVG(title, subtitle, stylePresetName = '3D Cinematic Storybook') {
-  const safeTitle = (title || 'Artwork').slice(0, 30)
-  const safeSub = (subtitle || 'Character DNA Anchor').slice(0, 40)
-  
-  const svgString = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 600" width="100%" height="100%">
+// Helper 1: Multi-View Character Turnaround Sheet SVG Generator
+function renderCharacterTurnaroundSheetSVG(name, age, dna, outfit, stylePresetName = '3D Cinematic Storybook') {
+  const safeName = (name || 'Character').slice(0, 25)
+  const safeAge = (age || 'Child').slice(0, 15)
+  const safeDna = (dna || 'Physical character features').slice(0, 70)
+  const safeOutfit = (outfit || 'Standard outfit').slice(0, 60)
+
+  // Derive outfit / hair colors based on text prompt hints
+  const outfitLower = (outfit + ' ' + dna).toLowerCase()
+  let hoodieColor = '#3b82f6' // default blue
+  let hairColor = '#64748b' // default slate
+  let pantsColor = '#1e293b' // default navy/jeans
+
+  if (outfitLower.includes('red') || outfitLower.includes('crimson') || outfitLower.includes('orange')) hoodieColor = '#ef4444'
+  else if (outfitLower.includes('green') || outfitLower.includes('emerald')) hoodieColor = '#10b981'
+  else if (outfitLower.includes('purple') || outfitLower.includes('violet')) hoodieColor = '#8b5cf6'
+  else if (outfitLower.includes('yellow') || outfitLower.includes('gold')) hoodieColor = '#f59e0b'
+  else if (outfitLower.includes('pink')) hoodieColor = '#ec4899'
+
+  if (outfitLower.includes('auburn') || outfitLower.includes('brown') || outfitLower.includes('freckles')) hairColor = '#9a3412'
+  else if (outfitLower.includes('black') || outfitLower.includes('dark')) hairColor = '#0f172a'
+  else if (outfitLower.includes('blonde') || outfitLower.includes('yellow')) hairColor = '#fde047'
+  else if (outfitLower.includes('red')) hairColor = '#dc2626'
+
+  const svgString = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 800" width="100%" height="100%">
     <defs>
-      <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-        <stop offset="0%" stop-color="#0f172a" />
-        <stop offset="50%" stop-color="#312e81" />
-        <stop offset="100%" stop-color="#581c87" />
+      <linearGradient id="sheetBg" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#090d16" />
+        <stop offset="100%" stop-color="#0f172a" />
       </linearGradient>
-      <radialGradient id="glow" cx="50%" cy="40%" r="60%">
-        <stop offset="0%" stop-color="#c084fc" stop-opacity="0.35" />
-        <stop offset="100%" stop-color="#000000" stop-opacity="0" />
-      </radialGradient>
+      <linearGradient id="panelBg" x1="0%" y1="0%" x2="0%" y2="100%">
+        <stop offset="0%" stop-color="#1e293b" />
+        <stop offset="100%" stop-color="#0f172a" />
+      </linearGradient>
     </defs>
-    <rect width="600" height="600" rx="24" fill="url(#bgGrad)" />
-    <circle cx="300" cy="240" r="180" fill="url(#glow)" />
     
-    <!-- Stylized Artwork Shape -->
-    <rect x="180" y="140" width="240" height="200" rx="20" fill="#1e1b4b" stroke="#818cf8" stroke-width="3" opacity="0.9" />
-    <path d="M 220 300 Q 300 200 380 300" fill="none" stroke="#f472b6" stroke-width="6" stroke-linecap="round" />
-    <circle cx="300" cy="210" r="45" fill="#fde047" opacity="0.85" />
-    <polygon points="300,150 315,190 355,190 322,215 335,255 300,230 265,255 278,215 245,190 285,190" fill="#a7f3d0" opacity="0.9" />
-    
-    <!-- Title & Style Badge -->
-    <rect x="50" y="420" width="500" height="130" rx="16" fill="#020617" opacity="0.85" stroke="#334155" stroke-width="1.5" />
-    <text x="300" y="460" font-family="sans-serif" font-size="22" font-weight="bold" fill="#f8fafc" text-anchor="middle">${safeTitle}</text>
-    <text x="300" y="495" font-family="sans-serif" font-size="14" fill="#cbd5e1" text-anchor="middle">${safeSub}</text>
-    <text x="300" y="530" font-family="sans-serif" font-size="12" font-weight="600" fill="#c084fc" text-anchor="middle">Art Style: ${stylePresetName}</text>
+    <!-- Background Sheet Canvas -->
+    <rect width="800" height="800" rx="20" fill="url(#sheetBg)" />
+    <rect x="20" y="20" width="760" height="760" rx="16" fill="none" stroke="#334155" stroke-width="2" stroke-dasharray="8 4" />
+
+    <!-- Header Header Bar -->
+    <rect x="30" y="30" width="740" height="75" rx="12" fill="#1e1b4b" stroke="#6366f1" stroke-width="1.5" />
+    <text x="50" y="62" font-family="sans-serif" font-size="24" font-weight="bold" fill="#f8fafc">${safeName.toUpperCase()}</text>
+    <text x="50" y="86" font-family="sans-serif" font-size="13" font-weight="600" fill="#a7f3d0">AGE: ${safeAge} | ART STYLE: ${stylePresetName.toUpperCase()}</text>
+    <rect x="520" y="48" width="230" height="38" rx="8" fill="#7c3aed" opacity="0.9" />
+    <text x="635" y="72" font-family="sans-serif" font-size="12" font-weight="bold" fill="#ffffff" text-anchor="middle">DNA TURNAROUND SHEET</text>
+
+    <!-- Grid Viewports -->
+    <!-- Panel 1: Full Body Front View -->
+    <rect x="30" y="120" width="230" height="460" rx="12" fill="url(#panelBg)" stroke="#334155" stroke-width="1.5" />
+    <text x="145" y="148" font-family="sans-serif" font-size="13" font-weight="bold" fill="#cbd5e1" text-anchor="middle">FULL BODY FRONT</text>
+    <!-- Front Human Silhouette -->
+    <circle cx="145" cy="220" r="32" fill="#fed7aa" />
+    <path d="M 120 205 C 120 180 170 180 170 205 Z" fill="${hairColor}" />
+    <circle cx="135" cy="220" r="4" fill="#0f172a" />
+    <circle cx="155" cy="220" r="4" fill="#0f172a" />
+    <path d="M 138 234 Q 145 240 152 234" stroke="#9a3412" stroke-width="2" fill="none" />
+    <rect x="138" y="252" width="14" height="20" fill="#fed7aa" />
+    <path d="M 105 272 L 185 272 L 175 420 L 115 420 Z" fill="${hoodieColor}" rx="10" />
+    <rect x="115" y="420" width="28" height="120" fill="${pantsColor}" rx="4" />
+    <rect x="147" y="420" width="28" height="120" fill="${pantsColor}" rx="4" />
+    <rect x="108" y="530" width="38" height="18" fill="#f97316" rx="6" />
+    <rect x="144" y="530" width="38" height="18" fill="#f97316" rx="6" />
+
+    <!-- Panel 2: Three-Quarter View -->
+    <rect x="285" y="120" width="230" height="460" rx="12" fill="url(#panelBg)" stroke="#334155" stroke-width="1.5" />
+    <text x="400" y="148" font-family="sans-serif" font-size="13" font-weight="bold" fill="#cbd5e1" text-anchor="middle">THREE-QUARTER VIEW</text>
+    <!-- 3/4 Human Figure -->
+    <ellipse cx="400" cy="220" rx="30" ry="32" fill="#fed7aa" />
+    <path d="M 375 205 C 375 178 425 180 422 210 Z" fill="${hairColor}" />
+    <circle cx="390" cy="220" r="4" fill="#0f172a" />
+    <circle cx="410" cy="220" r="4" fill="#0f172a" />
+    <rect x="365" y="272" width="70" height="148" fill="${hoodieColor}" rx="8" />
+    <rect x="375" y="420" width="25" height="120" fill="${pantsColor}" rx="4" />
+    <rect x="405" y="420" width="25" height="120" fill="${pantsColor}" rx="4" />
+    <rect x="368" y="530" width="35" height="18" fill="#f97316" rx="6" />
+    <rect x="402" y="530" width="35" height="18" fill="#f97316" rx="6" />
+
+    <!-- Panel 3: Expressions Grid -->
+    <rect x="540" y="120" width="230" height="460" rx="12" fill="url(#panelBg)" stroke="#334155" stroke-width="1.5" />
+    <text x="655" y="148" font-family="sans-serif" font-size="13" font-weight="bold" fill="#cbd5e1" text-anchor="middle">FACIAL EXPRESSIONS</text>
+    <!-- Expr 1: Smiling -->
+    <circle cx="600" cy="210" r="28" fill="#fed7aa" />
+    <path d="M 578 198 C 578 175 622 175 622 198 Z" fill="${hairColor}" />
+    <circle cx="590" cy="210" r="3.5" fill="#0f172a" />
+    <circle cx="610" cy="210" r="3.5" fill="#0f172a" />
+    <path d="M 592 222 Q 600 230 608 222" stroke="#9a3412" stroke-width="2" fill="none" />
+    <text x="600" y="255" font-family="sans-serif" font-size="10" fill="#94a3b8" text-anchor="middle">Cheerful</text>
+    <!-- Expr 2: Curious -->
+    <circle cx="710" cy="210" r="28" fill="#fed7aa" />
+    <path d="M 688 198 C 688 175 732 175 732 198 Z" fill="${hairColor}" />
+    <circle cx="700" cy="208" r="4.5" fill="#0f172a" />
+    <circle cx="720" cy="212" r="3" fill="#0f172a" />
+    <circle cx="710" cy="225" r="3" fill="#9a3412" />
+    <text x="710" y="255" font-family="sans-serif" font-size="10" fill="#94a3b8" text-anchor="middle">Curious</text>
+    <!-- Expr 3: Determined -->
+    <circle cx="600" cy="340" r="28" fill="#fed7aa" />
+    <path d="M 578 328 C 578 305 622 305 622 328 Z" fill="${hairColor}" />
+    <line x1="585" y1="334" x2="595" y2="337" stroke="#0f172a" stroke-width="2" />
+    <line x1="615" y1="334" x2="605" y2="337" stroke="#0f172a" stroke-width="2" />
+    <circle cx="590" cy="342" r="3.5" fill="#0f172a" />
+    <circle cx="610" cy="342" r="3.5" fill="#0f172a" />
+    <line x1="592" y1="354" x2="608" y2="354" stroke="#9a3412" stroke-width="2" />
+    <text x="600" y="385" font-family="sans-serif" font-size="10" fill="#94a3b8" text-anchor="middle">Determined</text>
+    <!-- Expr 4: Calm -->
+    <circle cx="710" cy="340" r="28" fill="#fed7aa" />
+    <path d="M 688 328 C 688 305 732 305 732 328 Z" fill="${hairColor}" />
+    <path d="M 694 340 Q 700 336 706 340" stroke="#0f172a" stroke-width="1.8" fill="none" />
+    <path d="M 714 340 Q 720 336 726 340" stroke="#0f172a" stroke-width="1.8" fill="none" />
+    <path d="M 704 353 Q 710 357 716 353" stroke="#9a3412" stroke-width="1.8" fill="none" />
+    <text x="710" y="385" font-family="sans-serif" font-size="10" fill="#94a3b8" text-anchor="middle">Calm</text>
+
+    <!-- Specs Footer Box -->
+    <rect x="30" y="600" width="740" height="170" rx="12" fill="#020617" stroke="#334155" stroke-width="1.5" />
+    <text x="50" y="632" font-family="sans-serif" font-size="14" font-weight="bold" fill="#c084fc">LOCKED PHYSICAL DNA ANCHORS:</text>
+    <text x="50" y="660" font-family="sans-serif" font-size="13" fill="#cbd5e1">${safeDna}</text>
+    <text x="50" y="700" font-family="sans-serif" font-size="14" font-weight="bold" fill="#f472b6">OUTFIT & CLOTHING VARIANT:</text>
+    <text x="50" y="728" font-family="sans-serif" font-size="13" fill="#cbd5e1">${safeOutfit}</text>
   </svg>`
+
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svgString)}`
+}
+
+// Helper 2: Storybook Scene Illustration SVG Generator
+function renderSceneCompositionSVG(title, action, shotType, lighting, stylePresetName = '3D Cinematic Storybook') {
+  const safeTitle = (title || 'Story Scene').slice(0, 35)
+  const safeAction = (action || 'Scene description').slice(0, 80)
   
+  let skyGradStop1 = '#0f172a'
+  let skyGradStop2 = '#1e1b4b'
+  let sunColor = '#fde047'
+  
+  if ((lighting || '').toLowerCase().includes('golden')) {
+    skyGradStop1 = '#7c2d12'
+    skyGradStop2 = '#c2410c'
+    sunColor = '#fbbf24'
+  } else if ((lighting || '').toLowerCase().includes('twilight') || (lighting || '').toLowerCase().includes('moody')) {
+    skyGradStop1 = '#31104b'
+    skyGradStop2 = '#020617'
+    sunColor = '#e0e7ff'
+  } else if ((lighting || '').toLowerCase().includes('sparkle') || (lighting || '').toLowerCase().includes('magical')) {
+    skyGradStop1 = '#4c1d95'
+    skyGradStop2 = '#831843'
+    sunColor = '#67e8f9'
+  }
+
+  const svgString = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 600" width="100%" height="100%">
+    <defs>
+      <linearGradient id="sky" x1="0%" y1="0%" x2="0%" y2="100%">
+        <stop offset="0%" stop-color="${skyGradStop1}" />
+        <stop offset="100%" stop-color="${skyGradStop2}" />
+      </linearGradient>
+      <linearGradient id="ground" x1="0%" y1="0%" x2="0%" y2="100%">
+        <stop offset="0%" stop-color="#064e3b" />
+        <stop offset="100%" stop-color="#022c22" />
+      </linearGradient>
+    </defs>
+    
+    <!-- Environment Canvas -->
+    <rect width="800" height="600" rx="16" fill="url(#sky)" />
+    <circle cx="650" cy="180" r="90" fill="${sunColor}" opacity="0.8" />
+
+    <!-- Terrain Hills -->
+    <path d="M 0 400 Q 200 320 400 380 T 800 350 L 800 600 L 0 600 Z" fill="url(#ground)" />
+    <path d="M 0 450 Q 300 390 600 460 T 800 420 L 800 600 L 0 600 Z" fill="#022c22" opacity="0.8" />
+
+    <!-- Magical Trees / Scenery Elements -->
+    <polygon points="120,250 80,380 160,380" fill="#047857" />
+    <polygon points="120,200 90,300 150,300" fill="#059669" />
+    <polygon points="680,280 640,410 720,410" fill="#047857" />
+
+    <!-- Character Figures in Scene -->
+    <g transform="translate(320, 310)">
+      <circle cx="40" cy="40" r="22" fill="#fed7aa" />
+      <path d="M 22 28 C 22 10 58 10 58 28 Z" fill="#9a3412" />
+      <rect x="22" y="70" width="36" height="80" fill="#3b82f6" rx="8" />
+      <rect x="26" y="150" width="12" height="70" fill="#1e293b" />
+      <rect x="42" y="150" width="12" height="70" fill="#1e293b" />
+    </g>
+
+    <g transform="translate(420, 320)">
+      <circle cx="40" cy="40" r="20" fill="#fed7aa" />
+      <path d="M 24 28 C 24 12 56 12 56 28 Z" fill="#0f172a" />
+      <rect x="24" y="68" width="32" height="75" fill="#10b981" rx="8" />
+      <rect x="28" y="143" width="10" height="65" fill="#1e293b" />
+      <rect x="42" y="143" width="10" height="65" fill="#1e293b" />
+    </g>
+
+    <!-- Overlay Details Banner -->
+    <rect x="30" y="470" width="740" height="100" rx="14" fill="#020617" opacity="0.9" stroke="#334155" stroke-width="1.5" />
+    <text x="50" y="505" font-family="sans-serif" font-size="18" font-weight="bold" fill="#f8fafc">${safeTitle}</text>
+    <text x="50" y="532" font-family="sans-serif" font-size="12" fill="#cbd5e1">${safeAction}</text>
+    <text x="50" y="555" font-family="sans-serif" font-size="11" font-weight="bold" fill="#c084fc">Shot: ${shotType} | Lighting: ${lighting} | Style: ${stylePresetName}</text>
+  </svg>`
+
   return `data:image/svg+xml;utf8,${encodeURIComponent(svgString)}`
 }
 
@@ -115,7 +277,7 @@ export default function IllustrationStudio({ initialProjectId, onBack }) {
         age: '8 years old',
         dna: 'Spiky auburn hair, large curious hazel eyes, scattered freckles across nose, warm wide smile.',
         outfit: 'Bright cobalt blue zip hoodie over dark blue denim jeans and orange sneakers.',
-        imageUrl: renderOfflineSVG('John (Turnaround Sheet)', 'Spiky auburn hair, hazel eyes', '3D Cinematic Storybook')
+        imageUrl: renderCharacterTurnaroundSheetSVG('John', '8 years old', 'Spiky auburn hair, hazel eyes', 'Bright cobalt blue zip hoodie', '3D Cinematic Storybook')
       }
       const starterChar2 = {
         id: 'char-2',
@@ -124,7 +286,7 @@ export default function IllustrationStudio({ initialProjectId, onBack }) {
         age: '9 years old',
         dna: 'Short curly dark brown hair, deep brown intelligent eyes, cheerful energetic expression.',
         outfit: 'Emerald green adventure vest, khaki trousers, sturdy brown hiking boots.',
-        imageUrl: renderOfflineSVG('Joshua (Turnaround Sheet)', 'Short curly dark hair, brown eyes', '3D Cinematic Storybook')
+        imageUrl: renderCharacterTurnaroundSheetSVG('Joshua', '9 years old', 'Short curly dark brown hair', 'Emerald green adventure vest', '3D Cinematic Storybook')
       }
       const initialChars = [starterChar1, starterChar2]
       setCharacters(initialChars)
@@ -139,7 +301,7 @@ export default function IllustrationStudio({ initialProjectId, onBack }) {
         shot: 'Cinematic Wide Establishing Shot',
         lighting: 'Golden Hour Warm Sunlight',
         caption: 'John and Joshua discovered a giant ancient tree glowing with golden sparkles in the heart of the forest.',
-        imageUrl: renderOfflineSVG('Meeting at the Ancient Tree', 'John & Joshua at glowing tree', '3D Cinematic Storybook')
+        imageUrl: renderSceneCompositionSVG('Meeting at the Ancient Tree', 'John & Joshua at glowing tree', 'Cinematic Wide Establishing Shot', 'Golden Hour Warm Sunlight', '3D Cinematic Storybook')
       }
       setScenes([starterScene])
       localStorage.setItem(LS_SCENES_KEY, JSON.stringify([starterScene]))
@@ -149,6 +311,7 @@ export default function IllustrationStudio({ initialProjectId, onBack }) {
       localStorage.setItem(LS_ACTIVE_PROJECT_KEY, firstId)
     }
   }, [])
+
 
   // Sync to local storage on changes
   const saveState = (updatedProjects, updatedProjectId, updatedChars, updatedScenes) => {
@@ -240,16 +403,18 @@ export default function IllustrationStudio({ initialProjectId, onBack }) {
   }
 
   // AI Image Rendering Routine with Fallback
-  const generateArtwork = async (prompt, title, subtitle) => {
+  const generateArtwork = async (prompt, title, type, charDetails) => {
     showLoading('Rendering Visual Asset...', `Applying physical DNA consistency anchors in ${globalArtStyle}...`)
     
-    // Attempt rendering via Gemini API or Edge function
+    const fullPrompt = `Children book master illustration, ${globalArtStyle} aesthetic, vibrant color palette, professional studio lighting, highly detailed: ${prompt}`
+    
+    // Attempt rendering via Supabase function or direct Gemini API if key is connected
     try {
       if (isSupabaseConfigured && supabase) {
         const { data: auth } = await supabase.auth.getUser()
         if (auth?.user) {
           const { data } = await supabase.functions.invoke('illustration-generate', {
-            body: { prompt, aspectRatio: '1:1' }
+            body: { prompt: fullPrompt, aspectRatio: '1:1' }
           })
           if (data?.url) {
             hideLoading()
@@ -257,14 +422,35 @@ export default function IllustrationStudio({ initialProjectId, onBack }) {
           }
         }
       }
+
+      const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image:generateContent?key=`
+      const res = await fetch(apiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ role: 'user', parts: [{ text: fullPrompt }] }],
+          generationConfig: { responseModalities: ['IMAGE'], imageConfig: { aspectRatio: "1:1" } }
+        })
+      })
+      const data = await res.json()
+      const part = data?.candidates?.[0]?.content?.parts?.find(p => p.inlineData)
+      if (part) {
+        hideLoading()
+        return `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`
+      }
     } catch (e) {
-      console.log('Backend image generation fallback:', e)
+      console.log('AI Generation fallback:', e)
     }
 
-    // High quality offline fallback svg artwork
-    await new Promise(res => setTimeout(res, 1200))
+    // High quality multi-view character turnaround sheet or scene composition fallback
+    await new Promise(res => setTimeout(res, 800))
     hideLoading()
-    return renderOfflineSVG(title, subtitle, globalArtStyle)
+
+    if (type === 'character' && charDetails) {
+      return renderCharacterTurnaroundSheetSVG(charDetails.name, charDetails.age, charDetails.dna, charDetails.outfit, globalArtStyle)
+    } else {
+      return renderSceneCompositionSVG(title, prompt, sceneShotType, sceneLighting, globalArtStyle)
+    }
   }
 
   // Project Management Actions
@@ -310,7 +496,7 @@ export default function IllustrationStudio({ initialProjectId, onBack }) {
 
     setModalCharOpen(false)
     const prompt = `Character reference sheet for ${charForm.name}, age ${charForm.age}. DNA: ${charForm.dna}. Outfit: ${charForm.outfit}. Art Style: ${globalArtStyle}.`
-    const imageUrl = await generateArtwork(prompt, charForm.name + ' (Turnaround)', charForm.dna.slice(0, 35))
+    const imageUrl = await generateArtwork(prompt, charForm.name, 'character', charForm)
 
     let updatedChars
     if (charForm.id) {
@@ -363,7 +549,7 @@ export default function IllustrationStudio({ initialProjectId, onBack }) {
 
     const newChars = []
     for (const row of validRows) {
-      const imageUrl = renderOfflineSVG(row.name + ' (Turnaround)', row.dna.slice(0, 35), globalArtStyle)
+      const imageUrl = renderCharacterTurnaroundSheetSVG(row.name, row.age, row.dna, row.outfit, globalArtStyle)
       newChars.push({
         id: 'char-' + Date.now() + Math.random().toString().slice(2, 6),
         projectId: activeProjectId,
@@ -395,7 +581,7 @@ export default function IllustrationStudio({ initialProjectId, onBack }) {
         age: item.age || 'Child',
         dna: item.dna || 'Standard character features',
         outfit: item.outfit || 'Default clothing',
-        imageUrl: item.imageUrl || renderOfflineSVG(item.name || 'Imported', 'Imported DNA', globalArtStyle)
+        imageUrl: item.imageUrl || renderCharacterTurnaroundSheetSVG(item.name, item.age, item.dna, item.outfit, globalArtStyle)
       }))
 
       const updatedChars = [...characters, ...newChars]
