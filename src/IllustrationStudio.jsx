@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { isSupabaseConfigured, supabase } from './supabase'
 import { illustrationStyles } from './illustrationStyles'
+import { generateStudioArtwork, getStudioImageUrl } from './studioGeneration'
 import './illustration-studio.css'
 
 // Dual Mode Local Storage Keys
@@ -339,6 +340,20 @@ export default function IllustrationStudio({ initialProjectId, onBack }) {
       setScenes(updatedScenes)
       localStorage.setItem(LS_SCENES_KEY, JSON.stringify(updatedScenes))
     }
+    const current = projects.find(p => p.id === activeProjectId)
+    const cloudId = current?.cloudId || (/^[0-9a-f-]{36}$/i.test(current?.id || '') ? current.id : null)
+    if (cloudId && (updatedChars || updatedScenes)) {
+      const clean = rows => rows.filter(r => r.projectId === current.id).map(({ imageUrl, ...r }) => r)
+      ;(async () => {
+        const { data, error } = await supabase.from('creative_projects').select('brief').eq('id', cloudId).single()
+        if (error) throw error
+        const brief = { ...data.brief }
+        if (updatedChars) brief.studioCharacters = clean(updatedChars)
+        if (updatedScenes) brief.studioScenes = clean(updatedScenes)
+        const { error: updateError } = await supabase.from('creative_projects').update({ brief }).eq('id', cloudId)
+        if (updateError) throw updateError
+      })().catch(e => showAlert('Cloud save failed', 'Your local copy is retained. ' + e.message, 'error'))
+    }
   }
 
   // Supabase Syncing (when user is authenticated & online)
@@ -360,13 +375,33 @@ export default function IllustrationStudio({ initialProjectId, onBack }) {
         if (dbProjects && dbProjects.length > 0) {
           // Sync DB projects into state if available
           const mapped = dbProjects.map(p => ({
-            id: p.id,
+            id: projects.find(local => local.cloudId === p.id)?.id || p.id,
+            cloudId: p.id,
             name: p.title,
             description: p.brief?.description || '',
             artStyle: p.brief?.artStyle || '3D Cinematic Storybook'
           }))
-          setProjects(mapped)
-          if (!mapped.some(p => p.id === activeProjectId)) {
+          const combined = [...mapped, ...projects.filter(p => !mapped.some(m => m.id === p.id || m.cloudId === p.cloudId))]
+          setProjects(combined)
+          localStorage.setItem(LS_PROJECTS_KEY, JSON.stringify(combined))
+          const restore = async (key, localRows) => {
+            const rows = [...localRows]
+            for (const p of dbProjects) {
+              const projectId = mapped.find(m => m.cloudId === p.id).id
+              for (const saved of p.brief?.[key] || []) {
+                const i = rows.findIndex(r => r.id === saved.id)
+                const row = { ...(i >= 0 ? rows[i] : {}), ...saved, projectId }
+                if (row.storagePath) row.imageUrl = await getStudioImageUrl(row.storagePath)
+                if (i >= 0) rows[i] = row; else rows.push(row)
+              }
+            }
+            return rows
+          }
+          const [restoredChars, restoredScenes] = await Promise.all([restore('studioCharacters', characters), restore('studioScenes', scenes)])
+          setCharacters(restoredChars); setScenes(restoredScenes)
+          localStorage.setItem(LS_CHARACTERS_KEY, JSON.stringify(restoredChars))
+          localStorage.setItem(LS_SCENES_KEY, JSON.stringify(restoredScenes))
+          if (!combined.some(p => p.id === activeProjectId)) {
             setActiveProjectId(mapped[0].id)
           }
         }
@@ -393,6 +428,7 @@ export default function IllustrationStudio({ initialProjectId, onBack }) {
   const activeProject = projects.find(p => p.id === activeProjectId) || projects[0]
   const projectCharacters = characters.filter(c => c.projectId === activeProjectId)
   const projectScenes = scenes.filter(s => s.projectId === activeProjectId)
+  useEffect(() => { if (activeProject?.artStyle) setGlobalArtStyle(activeProject.artStyle) }, [activeProjectId])
 
   // AI Prompt Enhancement
   const handleEnhanceTextPrompt = async (currentText, setTargetField) => {
@@ -410,54 +446,22 @@ export default function IllustrationStudio({ initialProjectId, onBack }) {
     }, 900)
   }
 
-  // AI Image Rendering Routine with Fallback
+  // Generate through the authenticated service; never substitute a drawing for a failed request.
   const generateArtwork = async (prompt, title, type, charDetails) => {
     showLoading('Rendering Visual Asset...', `Applying physical DNA consistency anchors in ${globalArtStyle}...`)
     
     const fullPrompt = `Children book master illustration, ${globalArtStyle} aesthetic, vibrant color palette, professional studio lighting, highly detailed: ${prompt}`
     
-    // Attempt rendering via Supabase function or direct Gemini API if key is connected
     try {
-      if (isSupabaseConfigured && supabase) {
-        const { data: auth } = await supabase.auth.getUser()
-        if (auth?.user) {
-          const { data } = await supabase.functions.invoke('illustration-generate', {
-            body: { prompt: fullPrompt, aspectRatio: '1:1' }
-          })
-          if (data?.url) {
-            hideLoading()
-            return data.url
-          }
-        }
-      }
-
-      const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image:generateContent?key=`
-      const res = await fetch(apiUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ role: 'user', parts: [{ text: fullPrompt }] }],
-          generationConfig: { responseModalities: ['IMAGE'], imageConfig: { aspectRatio: "1:1" } }
-        })
-      })
-      const data = await res.json()
-      const part = data?.candidates?.[0]?.content?.parts?.find(p => p.inlineData)
-      if (part) {
-        hideLoading()
-        return `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`
-      }
+      const layout = type === 'character' ? ' Create a finished character reference sheet with full-body front, side and three-quarter views and several facial expressions. Keep the same face, outfit and age in every view. Respect adult proportions when an adult age is specified. Neutral background, detailed materials and hair, no cropped feet.' : ''
+      const reference = type === 'character' ? charDetails?.artworkId : projectCharacters.find(c => c.artworkId && prompt.toLowerCase().includes(c.name.toLowerCase()))?.artworkId
+      return await generateStudioArtwork({ project: activeProject, style: globalArtStyle, prompt: fullPrompt + layout, characters, scenes, referenceId: reference })
     } catch (e) {
-      console.log('AI Generation fallback:', e)
-    }
-
-    // High quality multi-view character turnaround sheet or scene composition fallback
-    await new Promise(res => setTimeout(res, 800))
-    hideLoading()
-
-    if (type === 'character' && charDetails) {
-      return renderCharacterTurnaroundSheetSVG(charDetails.name, charDetails.age, charDetails.dna, charDetails.outfit, globalArtStyle)
-    } else {
-      return renderSceneCompositionSVG(title, prompt, sceneShotType, sceneLighting, globalArtStyle)
+      showAlert('Generation failed', e.message, 'error')
+      return null
+    } finally {
+      localStorage.setItem(LS_PROJECTS_KEY, JSON.stringify(projects))
+      hideLoading()
     }
   }
 
@@ -504,12 +508,13 @@ export default function IllustrationStudio({ initialProjectId, onBack }) {
 
     setModalCharOpen(false)
     const prompt = `Character reference sheet for ${charForm.name}, age ${charForm.age}. DNA: ${charForm.dna}. Outfit: ${charForm.outfit}. Art Style: ${globalArtStyle}.`
-    const imageUrl = await generateArtwork(prompt, charForm.name, 'character', charForm)
+    const artwork = await generateArtwork(prompt, charForm.name, 'character', charForm)
+    if (!artwork) { setModalCharOpen(true); return }
 
     let updatedChars
     if (charForm.id) {
       // Edit existing
-      updatedChars = characters.map(c => c.id === charForm.id ? { ...charForm, imageUrl } : c)
+      updatedChars = characters.map(c => c.id === charForm.id ? { ...c, ...charForm, ...artwork } : c)
     } else {
       // Create new
       const newChar = {
@@ -519,7 +524,7 @@ export default function IllustrationStudio({ initialProjectId, onBack }) {
         age: charForm.age.trim(),
         dna: charForm.dna.trim(),
         outfit: charForm.outfit.trim(),
-        imageUrl
+        ...artwork
       }
       updatedChars = [...characters, newChar]
     }
@@ -557,7 +562,11 @@ export default function IllustrationStudio({ initialProjectId, onBack }) {
 
     const newChars = []
     for (const row of validRows) {
-      const imageUrl = renderCharacterTurnaroundSheetSVG(row.name, row.age, row.dna, row.outfit, globalArtStyle)
+      const artwork = await generateArtwork(`Character reference sheet for ${row.name}, age ${row.age}. DNA: ${row.dna}. Outfit: ${row.outfit}.`, row.name, 'character', row)
+      if (!artwork) {
+        if (newChars.length) saveState(null, null, [...characters, ...newChars], null)
+        return
+      }
       newChars.push({
         id: 'char-' + Date.now() + Math.random().toString().slice(2, 6),
         projectId: activeProjectId,
@@ -565,7 +574,7 @@ export default function IllustrationStudio({ initialProjectId, onBack }) {
         age: row.age.trim(),
         dna: row.dna.trim(),
         outfit: row.outfit.trim(),
-        imageUrl
+        ...artwork
       })
     }
 
@@ -626,12 +635,13 @@ export default function IllustrationStudio({ initialProjectId, onBack }) {
       ? `${matchedChars.map(c => c.name).join(' & ')} Scene`
       : `Scene #${projectScenes.length + 1}`
 
-    const imageUrl = await generateArtwork(
+    const artwork = await generateArtwork(
       `${anchoredPrompt}, Shot: ${sceneShotType}, Lighting: ${sceneLighting}, Style: ${globalArtStyle}`,
       sceneTitle,
       scenePrompt.slice(0, 35)
     )
 
+    if (!artwork) return
     const newScene = {
       id: 'scene-' + Date.now(),
       projectId: activeProjectId,
@@ -640,7 +650,7 @@ export default function IllustrationStudio({ initialProjectId, onBack }) {
       shot: sceneShotType,
       lighting: sceneLighting,
       caption: scenePrompt.trim(),
-      imageUrl
+      ...artwork
     }
 
     const updatedScenes = [...scenes, newScene]
@@ -658,8 +668,7 @@ export default function IllustrationStudio({ initialProjectId, onBack }) {
   // Storybook Page Reordering & Caption Update
   const handleUpdateCaption = (sceneId, captionText) => {
     const updatedScenes = scenes.map(s => s.id === sceneId ? { ...s, caption: captionText } : s)
-    setScenes(updatedScenes)
-    localStorage.setItem(LS_SCENES_KEY, JSON.stringify(updatedScenes))
+    saveState(null, null, null, updatedScenes)
   }
 
   const handleMovePage = (index, direction) => {
@@ -1457,4 +1466,3 @@ export default function IllustrationStudio({ initialProjectId, onBack }) {
     </div>
   )
 }
-
