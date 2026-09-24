@@ -9,6 +9,14 @@ const LS_ACTIVE_PROJECT_KEY = 'sw_active_project'
 const LS_CHARACTERS_KEY = 'sw_characters'
 const LS_SCENES_KEY = 'sw_scenes'
 
+function svgToBase64(svgString) {
+  try {
+    return 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgString)))
+  } catch (e) {
+    return 'data:image/svg+xml;utf8,' + encodeURIComponent(svgString)
+  }
+}
+
 // Helper 1: Multi-View Character Turnaround Sheet SVG Generator
 function renderCharacterTurnaroundSheetSVG(name, age, dna, outfit, stylePresetName = '3D Cinematic Storybook') {
   const safeName = (name || 'Character').slice(0, 25)
@@ -129,7 +137,7 @@ function renderCharacterTurnaroundSheetSVG(name, age, dna, outfit, stylePresetNa
     <text x="50" y="728" font-family="sans-serif" font-size="13" fill="#cbd5e1">${safeOutfit}</text>
   </svg>`
 
-  return `data:image/svg+xml;utf8,${encodeURIComponent(svgString)}`
+  return svgToBase64(svgString)
 }
 
 // Helper 2: Storybook Scene Illustration SVG Generator
@@ -204,7 +212,7 @@ function renderSceneCompositionSVG(title, action, shotType, lighting, stylePrese
     <text x="50" y="555" font-family="sans-serif" font-size="11" font-weight="bold" fill="#c084fc">Shot: ${shotType} | Lighting: ${lighting} | Style: ${stylePresetName}</text>
   </svg>`
 
-  return `data:image/svg+xml;utf8,${encodeURIComponent(svgString)}`
+  return svgToBase64(svgString)
 }
 
 export default function IllustrationStudio({ initialProjectId, onBack }) {
@@ -917,7 +925,14 @@ export default function IllustrationStudio({ initialProjectId, onBack }) {
                   projectCharacters.map(c => (
                     <div key={c.id} className="sw-card">
                       <div style={{ position: 'relative', overflow: 'hidden' }} onClick={() => setDossierChar(c)}>
-                        <img src={c.imageUrl} alt={c.name} className="sw-card-image" />
+                        <img 
+                          src={c.imageUrl} 
+                          alt={c.name} 
+                          className="sw-card-image" 
+                          onError={(e) => {
+                            e.currentTarget.src = renderCharacterTurnaroundSheetSVG(c.name, c.age, c.dna, c.outfit, globalArtStyle)
+                          }}
+                        />
                       </div>
                       <div className="sw-card-body">
                         <div>
@@ -1037,7 +1052,14 @@ export default function IllustrationStudio({ initialProjectId, onBack }) {
                 ) : (
                   projectScenes.map(s => (
                     <div key={s.id} className="sw-card">
-                      <img src={s.imageUrl} alt={s.title} className="sw-card-image" />
+                      <img 
+                        src={s.imageUrl} 
+                        alt={s.title} 
+                        className="sw-card-image" 
+                        onError={(e) => {
+                          e.currentTarget.src = renderSceneCompositionSVG(s.title, s.action, s.shot, s.lighting, globalArtStyle)
+                        }}
+                      />
                       <div className="sw-card-body">
                         <div>
                           <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: '#ffffff' }}>{s.title}</h3>
@@ -1120,7 +1142,14 @@ export default function IllustrationStudio({ initialProjectId, onBack }) {
                         </div>
                       </div>
 
-                      <img src={s.imageUrl} alt={s.title} className="sw-card-image" />
+                      <img 
+                        src={s.imageUrl} 
+                        alt={s.title} 
+                        className="sw-card-image" 
+                        onError={(e) => {
+                          e.currentTarget.src = renderSceneCompositionSVG(s.title, s.action, s.shot, s.lighting, globalArtStyle)
+                        }}
+                      />
 
                       <div className="sw-card-body">
                         <div>
@@ -1365,7 +1394,14 @@ export default function IllustrationStudio({ initialProjectId, onBack }) {
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', alignItems: 'start' }}>
-              <img src={dossierChar.imageUrl} alt={dossierChar.name} style={{ width: '100%', borderRadius: '0.75rem', border: '1px solid #1e293b' }} />
+              <img 
+                src={dossierChar.imageUrl} 
+                alt={dossierChar.name} 
+                style={{ width: '100%', borderRadius: '0.75rem', border: '1px solid #1e293b' }} 
+                onError={(e) => {
+                  e.currentTarget.src = renderCharacterTurnaroundSheetSVG(dossierChar.name, dossierChar.age, dossierChar.dna, dossierChar.outfit, globalArtStyle)
+                }}
+              />
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', fontSize: '0.875rem' }}>
                 <div>
                   <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#c084fc', textTransform: 'uppercase' }}>Metadata</span>
